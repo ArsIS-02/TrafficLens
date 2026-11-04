@@ -40,13 +40,29 @@ def suricata_bin(cfg: Config) -> str | None:
     return _find(cfg["suricata"]["bin"], "suricata", ["/usr/bin/suricata", "/usr/local/bin/suricata"])
 
 
-def rules_file(cfg: Config) -> Path | None:
+def _count_rules(path: Path) -> int:
+    try:
+        with path.open("rb") as fh:
+            return sum(1 for line in fh if line[:1] not in (b"#", b"\n"))
+    except OSError:
+        return 0
+
+
+def rules_status(cfg: Config) -> dict:
+    """Наличие и источник правил Suricata: data из /data/suricata, baked из образа или отсутствуют."""
     p = cfg.rules_dir / "rules" / "suricata.rules"
     if p.exists() and p.stat().st_size > 0:
-        return p
-    if BAKED_RULES.exists():
-        return BAKED_RULES
-    return None
+        return {"available": True, "source": "data", "path": str(p),
+                "count": _count_rules(p), "mtime": p.stat().st_mtime}
+    if BAKED_RULES.exists() and BAKED_RULES.stat().st_size > 0:
+        return {"available": True, "source": "baked", "path": str(BAKED_RULES),
+                "count": _count_rules(BAKED_RULES), "mtime": BAKED_RULES.stat().st_mtime}
+    return {"available": False, "source": "none", "path": "", "count": 0, "mtime": None}
+
+
+def rules_file(cfg: Config) -> Path | None:
+    st = rules_status(cfg)
+    return Path(st["path"]) if st["available"] else None
 
 
 def tool_versions(cfg: Config) -> dict:
@@ -123,10 +139,14 @@ def run_suricata(cfg: Config, pcap: Path, outdir: Path, logfile: Path) -> bool:
             lf.write("Suricata не найдена — пропускаю сигнатурный анализ\n")
         return False
     outdir.mkdir(parents=True, exist_ok=True)
-    rules = rules_file(cfg)
-    if rules is None:
+    st = rules_status(cfg)
+    if st["available"]:
+        rules = Path(st["path"])
+    else:
         rules = outdir / "empty.rules"
         rules.write_text("")
+        with logfile.open("a") as lf:
+            lf.write("ВНИМАНИЕ: правила Suricata не найдены — сигнатурный анализ будет пустым\n")
     cmd = [sb, "-r", str(pcap.resolve()), "-l", str(outdir), "-k", "none", "-S", str(rules),
            "--set", "app-layer.protocols.tls.ja3-fingerprints=yes",
            "--set", "app-layer.protocols.tls.ja4-fingerprints=yes",
