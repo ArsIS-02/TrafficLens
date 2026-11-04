@@ -1,0 +1,7 @@
+.git
+tests
+deploy
+**/__pycache__
+*.pcap
+*.pcapng
+data

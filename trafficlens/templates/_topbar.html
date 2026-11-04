@@ -1,0 +1,12 @@
+<header class="topbar">
+  <a class="brand" href="/">
+    <span class="brand-mark"><svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/><path d="M4.6 7h1.2l.8-1.6L8 8.6l.8-1.6h.6"/></svg></span>
+    TrafficLens
+  </a>
+  <nav class="nav">
+    <a href="/" class="{{ 'active' if page == 'jobs' }}">Анализы</a>
+    <a href="/iocs" class="{{ 'active' if page == 'iocs' }}">Индикаторы и правила</a>
+  </nav>
+  <div class="spacer"></div>
+  {% if auth %}<button class="btn small" data-action="logout">Выйти</button>{% endif %}
+</header>

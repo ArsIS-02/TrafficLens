@@ -1,0 +1,216 @@
+"""Фоновые потоки: очередь анализа, планировщик обновлений, приём файлов живого захвата."""
+from __future__ import annotations
+
+import gzip
+import logging
+import secrets
+import shutil
+import threading
+import time
+from pathlib import Path
+
+from . import feeds, pipeline, runner
+from .config import Config
+from .db import DB
+
+log = logging.getLogger("trafficlens.worker")
+PCAP_EXT = (".pcap", ".pcapng", ".cap", ".dmp")
+
+
+def new_job_id() -> str:
+    return time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
+
+
+def enqueue_file(cfg: Config, db: DB, src: Path, filename: str, source: str, move: bool = True, status: str = "queued") -> str:
+    """Положить PCAP в каталог задачи и поставить её в очередь. .gz распаковывается."""
+    job_id = new_job_id()
+    jd = pipeline.job_dir(cfg, job_id)
+    jd.mkdir(parents=True)
+    name = Path(filename).name
+    if name.lower().endswith(".gz"):
+        dst = jd / ("input" + (Path(name[:-3]).suffix or ".pcap"))
+        with gzip.open(src, "rb") as fi, dst.open("wb") as fo:
+            shutil.copyfileobj(fi, fo, 1 << 20)
+        if move:
+            src.unlink(missing_ok=True)
+    else:
+        dst = jd / ("input" + (Path(name).suffix.lower() or ".pcap"))
+        if move:
+            shutil.move(str(src), dst)
+        else:
+            shutil.copy2(src, dst)
+    db.add_job(job_id, source, name, str(dst), dst.stat().st_size, status=status)
+    wake.set()
+    return job_id
+
+
+wake = threading.Event()
+_state = {"ioc_update": None, "rules_update": None, "busy": set()}
+_lock = threading.Lock()
+
+
+def state() -> dict:
+    with _lock:
+        return {k: (sorted(v) if isinstance(v, set) else v) for k, v in _state.items()}
+
+
+def _mark(task: str, on: bool):
+    with _lock:
+        (_state["busy"].add if on else _state["busy"].discard)(task)
+
+
+def run_ioc_update(cfg: Config, db: DB, only: str | None = None) -> dict:
+    _mark("iocs", True)
+    try:
+        res = feeds.update_all(cfg, db, only=only)
+        with _lock:
+            _state["ioc_update"] = {"ts": time.time(), "result": res}
+        return res
+    finally:
+        _mark("iocs", False)
+
+
+def run_rules_update(cfg: Config) -> tuple[bool, str]:
+    _mark("rules", True)
+    try:
+        ok, msg = runner.update_rules(cfg)
+        with _lock:
+            _state["rules_update"] = {"ts": time.time(), "ok": ok, "msg": msg}
+        return ok, msg
+    finally:
+        _mark("rules", False)
+
+
+def busy(task: str) -> bool:
+    with _lock:
+        return task in _state["busy"]
+
+
+class JobWorker(threading.Thread):
+    def __init__(self, cfg: Config, db: DB, n: int):
+        super().__init__(daemon=True, name=f"job-worker-{n}")
+        self.cfg, self.db = cfg, db
+
+    def run(self):
+        while True:
+            try:
+                job = self.db.claim_next()
+                if job:
+                    pipeline.process(self.cfg, self.db, job)
+                    continue
+            except Exception:  # noqa: BLE001
+                log.exception("worker loop")
+            wake.wait(5)
+            wake.clear()
+
+
+class Scheduler(threading.Thread):
+    def __init__(self, cfg: Config, db: DB):
+        super().__init__(daemon=True, name="scheduler")
+        self.cfg, self.db = cfg, db
+
+    def run(self):
+        time.sleep(5)
+        last_ioc = last_rules = last_ret = 0.0
+        feeds_state = self.db.feeds()
+        if feeds_state:
+            last_ioc = max((f.get("updated") or 0) for f in feeds_state.values())
+        rf = self.cfg.rules_dir / "rules" / "suricata.rules"
+        if rf.exists():
+            last_rules = rf.stat().st_mtime
+        while True:
+            now = time.time()
+            try:
+                if not busy("iocs") and now - last_ioc >= float(self.cfg["iocs"]["update_hours"]) * 3600:
+                    last_ioc = now
+                    run_ioc_update(self.cfg, self.db)
+                if (self.cfg["suricata"].get("enabled") and not busy("rules")
+                        and now - last_rules >= float(self.cfg["suricata"]["rules_update_hours"]) * 3600):
+                    last_rules = now
+                    run_rules_update(self.cfg)
+                if now - last_ret >= 3600:
+                    last_ret = now
+                    self.retention()
+            except Exception:  # noqa: BLE001
+                log.exception("scheduler")
+            time.sleep(60)
+
+    def retention(self):
+        days = float(self.cfg["capture"].get("retention_days", 7))
+        if days <= 0:
+            return
+        cutoff = time.time() - days * 86400
+        for j in self.db.jobs(limit=100000):
+            if j["source"] == "capture" and j["created"] < cutoff and j["status"] in ("done", "error"):
+                if j.get("summary", {}).get("verdict") == "critical":
+                    continue  # критичные храним, пока не удалят вручную
+                pipeline.delete(self.cfg, self.db, j["id"])
+
+
+class SpoolWatcher(threading.Thread):
+    """capture-контейнер кладёт закрытые файлы ротации в <data>/spool/ready/."""
+
+    def __init__(self, cfg: Config, db: DB):
+        super().__init__(daemon=True, name="spool-watcher")
+        self.cfg, self.db = cfg, db
+        self.ready = cfg.spool_dir / "ready"
+        self.last_file: dict | None = None
+
+    def run(self):
+        while True:
+            try:
+                for p in sorted(self.ready.iterdir()):
+                    if p.name.startswith(".") or not p.is_file():
+                        continue
+                    if not p.name.lower().endswith(PCAP_EXT + tuple(e + ".gz" for e in PCAP_EXT)):
+                        continue
+                    if time.time() - p.stat().st_mtime < 5:
+                        continue
+                    if p.stat().st_size <= 24:   # только заголовок pcap — пустой интервал
+                        p.unlink(missing_ok=True)
+                        continue
+                    jid = enqueue_file(self.cfg, self.db, p, p.name, "capture", move=True)
+                    self.last_file = {"name": p.name, "ts": time.time(), "job": jid}
+            except FileNotFoundError:
+                self.ready.mkdir(parents=True, exist_ok=True)
+            except Exception:  # noqa: BLE001
+                log.exception("spool watcher")
+            time.sleep(10)
+
+
+_started = False
+
+
+def start(cfg: Config, db: DB) -> dict:
+    global _started
+    threads = {}
+    if _started:
+        return threads
+    _started = True
+    db.reset_running()
+    for n in range(max(1, int(cfg.get("workers", 1)))):
+        JobWorker(cfg, db, n).start()
+    Scheduler(cfg, db).start()
+    if cfg["capture"].get("watch_spool", True):
+        sw = SpoolWatcher(cfg, db)
+        sw.start()
+        threads["spool"] = sw
+    return threads
+
+
+def capture_status(cfg: Config) -> dict:
+    """Признак живого захвата: capture-контейнер обновляет heartbeat-файл."""
+    hb = cfg.spool_dir / ".capture-heartbeat"
+    info = {"active": False}
+    if hb.exists():
+        age = time.time() - hb.stat().st_mtime
+        try:
+            text = hb.read_text(encoding="utf-8").strip()
+        except OSError:
+            text = ""
+        info = {"active": age < 180, "age": age, "info": text}
+    cur = [p for p in cfg.spool_dir.glob("*.pcap*") if p.is_file()]
+    if cur:
+        newest = max(cur, key=lambda p: p.stat().st_mtime)
+        info["current"] = {"name": newest.name, "size": newest.stat().st_size}
+    return info

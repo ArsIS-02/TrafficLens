@@ -1,0 +1,61 @@
+# TrafficLens — конфигурация. Положите в <каталог данных>/config/trafficlens.yaml.
+# Указывать нужно только то, что отличается от значений по умолчанию.
+# Секреты удобнее передавать переменными окружения (см. trafficlens.env.example).
+
+# Пароль веб-UI. Пусто — без входа (если доступ и так закрыт логином в Caddy).
+auth:
+  password: ""
+
+max_upload_mb: 4096
+
+# «Свои» сети — всё остальное считается внешним (направление файлов, выгрузки, маячки).
+local_nets:
+  - 192.168.1.0/24
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 100.64.0.0/10
+  - fc00::/7
+  - fe80::/10
+
+zeek:
+  extract_files: true     # сохранять переданные файлы (скачиваются из UI в ZIP с паролем infected)
+  extract_max_mb: 50
+
+suricata:
+  enabled: true
+  rules_update_hours: 24  # ET Open через suricata-update
+
+iocs:
+  update_hours: 6
+  max_age_days: 90        # сколько хранить записи накопительных фидов
+  abusech:
+    enabled: true
+    auth_key: ""          # https://auth.abuse.ch/ — бесплатно; или TL_ABUSECH_KEY
+    urlhaus: true
+    threatfox: true
+    feodo: true           # работает и без ключа
+    malwarebazaar: true
+  misp:
+    enabled: false
+    url: "https://misp.example"
+    key: ""               # или TL_MISP_KEY
+    verify_tls: true      # true / false / путь к CA, например /data/config/ipa-ca.crt
+    days: 30
+    to_ids_only: true
+  opencti:
+    enabled: false
+    url: "https://opencti.example"
+    token: ""             # или TL_OPENCTI_TOKEN
+    verify_tls: true
+    min_score: 0
+
+capture:
+  watch_spool: true
+  retention_days: 7       # задачи живого захвата старше — удаляются (кроме «Компрометации»)
+
+heuristics:
+  beacon_min_conns: 12    # минимум соединений для «маячка»
+  beacon_max_cv: 0.15     # допустимый разброс интервалов (stddev/mean)
+  beacon_ignore_ports: [53, 123, 137, 138, 5353, 67, 68]
+  large_upload_mb: 20
+  long_conn_hours: 1

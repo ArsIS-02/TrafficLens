@@ -1,0 +1,639 @@
+"""Сборка отчёта из логов Zeek / Suricata и сопоставление с IOC."""
+from __future__ import annotations
+
+import hashlib
+import heapq
+import ipaddress
+import json
+import math
+import statistics
+import time
+from collections import Counter, defaultdict
+from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
+from typing import Iterator
+
+from .ioc_store import IOCIndex, Match
+from .ioc_types import TYPE_LABELS, norm_url
+
+STD_PORTS = {
+    "http": {80, 8080, 8000, 8008, 8081, 8888, 3128, 591},
+    "ssl": {443, 8443, 993, 995, 465, 636, 853, 5061, 9443, 6443, 989, 990, 5986, 8883, 4443},
+    "ssh": {22},
+    "dns": {53, 5353, 5355},
+    "ftp": {21},
+    "smtp": {25, 587, 465, 2525},
+    "rdp": {3389},
+    "smb": {445, 139},
+    "irc": set(),          # любой IRC — подозрительно
+    "socks": {1080},
+}
+CLEARTEXT_PORTS = {21: "FTP", 23: "Telnet", 110: "POP3", 143: "IMAP", 389: "LDAP", 512: "rexec", 513: "rlogin", 1433: "MSSQL", 5900: "VNC"}
+SEV_LABEL = {1: "высокая", 2: "средняя", 3: "низкая", 4: "инфо"}
+
+
+# ---------------------------------------------------------------- чтение логов
+def read_log(path: Path) -> Iterator[dict]:
+    if not path.exists():
+        return
+    with path.open("r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if not line or line[0] != "{":
+                continue
+            try:
+                yield json.loads(line)
+            except ValueError:
+                continue
+
+
+def suri_ts(s: str) -> float:
+    try:
+        if len(s) > 5 and s[-5] in "+-" and s[-3] != ":":
+            return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S.%f%z").timestamp()
+        return datetime.fromisoformat(s).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    c = Counter(s)
+    n = len(s)
+    return -sum(v / n * math.log2(v / n) for v in c.values())
+
+
+def sha256_file(p: Path) -> str:
+    h = hashlib.sha256()
+    with p.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+class Locality:
+    def __init__(self, nets: list[str]):
+        self.nets = [ipaddress.ip_network(n, strict=False) for n in nets]
+
+        @lru_cache(maxsize=65536)
+        def is_local(ip: str) -> bool:
+            try:
+                a = ipaddress.ip_address(ip)
+            except ValueError:
+                return False
+            if a.is_multicast or a.is_unspecified or (a.version == 4 and str(a) == "255.255.255.255"):
+                return True
+            return any(a.version == n.version and a in n for n in self.nets)
+
+        self.is_local = is_local
+
+
+# ---------------------------------------------------------------- IOC-попадания
+class Hits:
+    def __init__(self):
+        self.items: dict[tuple[str, str], dict] = {}
+
+    def add(self, m: Match | None, ctx: str, ts: float, src: str = "", dst: str = "", port: int | None = None, detail: str = ""):
+        if not m:
+            return
+        key = (m.type, m.value)
+        h = self.items.get(key)
+        if h is None:
+            h = self.items[key] = {
+                "type": m.type, "type_label": TYPE_LABELS.get(m.type, m.type), "value": m.value,
+                "observed": set(), "contexts": Counter(), "sources": m.entries, "count": 0,
+                "first": ts, "last": ts, "hosts": set(), "port_match": False, "examples": [],
+            }
+        h["count"] += 1
+        h["contexts"][ctx] += 1
+        h["observed"].add(m.observed)
+        if ts:
+            h["first"] = min(h["first"] or ts, ts)
+            h["last"] = max(h["last"] or ts, ts)
+        for x in (src, dst):
+            if x:
+                h["hosts"].add(x)
+        if port and any(e.get("port") == port for e in m.entries):
+            h["port_match"] = True
+        if len(h["examples"]) < 5:
+            h["examples"].append({"ts": ts, "ctx": ctx, "src": src, "dst": dst, "port": port, "detail": detail})
+
+    def export(self) -> list[dict]:
+        out = []
+        for h in self.items.values():
+            d = dict(h)
+            d["observed"] = sorted(h["observed"])[:20]
+            d["contexts"] = dict(h["contexts"])
+            d["hosts"] = sorted(h["hosts"])[:30]
+            d["max_conf"] = max((e.get("confidence") or 0) for e in h["sources"]) if h["sources"] else 0
+            out.append(d)
+        out.sort(key=lambda x: (-x["max_conf"], -x["count"]))
+        return out
+
+
+# ---------------------------------------------------------------- построение
+def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -> dict:
+    zdir, sdir = job_dir / "zeek", job_dir / "suricata"
+    loc = Locality(cfg["local_nets"])
+    heur = cfg["heuristics"]
+    max_rows = int(cfg.get("report", {}).get("max_rows", 500))
+    hits = Hits()
+    is_local = loc.is_local
+
+    # --- карты имён: ip -> домен (DNS/SNI), ip -> hostname/MAC (DHCP)
+    ip_names: dict[str, Counter] = defaultdict(Counter)
+    host_info: dict[str, dict] = defaultdict(dict)
+
+    # ======================= DNS
+    dns_q = Counter()
+    dns_clients: dict[str, set] = defaultdict(set)
+    dns_rcode: dict[str, Counter] = defaultdict(Counter)
+    nx = Counter()
+    nx_clients: dict[str, set] = defaultdict(set)
+    resolvers = Counter()
+    qtypes = Counter()
+    txt_by_base = Counter()
+    suspicious_dns: dict[str, dict] = {}
+    dns_total = 0
+    for r in read_log(zdir / "dns.log"):
+        dns_total += 1
+        q = (r.get("query") or "").strip(".").lower()
+        ts, src, dst = r.get("ts", 0), r.get("id.orig_h", ""), r.get("id.resp_h", "")
+        resolvers[dst] += 1
+        qt = r.get("qtype_name") or "-"
+        qtypes[qt] += 1
+        if not q:
+            continue
+        dns_q[q] += 1
+        if len(dns_clients[q]) < 50:
+            dns_clients[q].add(src)
+        rc = r.get("rcode_name") or ("-" if r.get("rcode") is None else str(r.get("rcode")))
+        dns_rcode[q][rc] += 1
+        if rc == "NXDOMAIN":
+            nx[q] += 1
+            if len(nx_clients[q]) < 20:
+                nx_clients[q].add(src)
+        hits.add(index.domain(q), "DNS-запрос", ts, src, dst, detail=qt)
+        for a in r.get("answers") or []:
+            a = str(a).strip(".").lower()
+            try:
+                ipaddress.ip_address(a)
+                ip_names[a][q] += 1
+                hits.add(index.ip(a), "DNS-ответ", ts, src, a, detail=q)
+            except ValueError:
+                hits.add(index.domain(a), "DNS-ответ (CNAME)", ts, src, dst, detail=q)
+        # эвристики имени
+        if q.endswith((".arpa", ".local", ".lan", ".home", ".internal")) or q.startswith("_"):
+            continue
+        parts = q.split(".")
+        base = ".".join(parts[-2:]) if len(parts) >= 2 else q
+        if qt == "TXT":
+            txt_by_base[base] += 1
+        labels = parts[:-2] if len(parts) > 2 else parts[:1]
+        longest = max(labels, key=len) if labels else ""
+        reason = None
+        if len(q) > 100:
+            reason = f"очень длинное имя ({len(q)} симв.) — возможен DNS-туннель"
+        elif len(longest) >= int(heur["dns_min_label"]) and entropy(longest) >= float(heur["dns_entropy"]):
+            reason = f"высокая энтропия метки «{longest[:30]}» ({entropy(longest):.2f}) — возможен DGA"
+        if reason:
+            s = suspicious_dns.setdefault(q, {"name": q, "reason": reason, "count": 0, "clients": set()})
+            s["count"] += 1
+            s["clients"].add(src)
+    for base, n in txt_by_base.items():
+        if n >= 20:
+            suspicious_dns[f"*.{base}"] = {"name": f"*.{base}", "reason": f"{n} TXT-запросов — возможен DNS-туннель", "count": n, "clients": set()}
+
+    # ======================= DHCP
+    for r in read_log(zdir / "dhcp.log"):
+        ip = r.get("assigned_addr") or r.get("client_addr")
+        if ip:
+            if r.get("host_name"):
+                host_info[ip]["hostname"] = r["host_name"]
+            if r.get("mac"):
+                host_info[ip]["mac"] = r["mac"]
+
+    # ======================= HTTP
+    fuid_url: dict[str, str] = {}
+    fuid_name: dict[str, str] = {}
+    http_rows = []
+    http_hosts = Counter()
+    uas = Counter()
+    http_total = 0
+    cleartext_auth = []
+    for r in read_log(zdir / "http.log"):
+        http_total += 1
+        ts, src, dst = r.get("ts", 0), r.get("id.orig_h", ""), r.get("id.resp_h", "")
+        host = (r.get("host") or dst or "").lower()
+        uri = r.get("uri") or "/"
+        port = r.get("id.resp_p")
+        hostport = host if port in (80, None) or ":" in host else f"{host}:{port}"
+        url_n = norm_url("http://" + hostport + uri)
+        http_hosts[host] += 1
+        if r.get("user_agent"):
+            uas[r["user_agent"]] += 1
+        m_host = index.domain(host.split(":")[0]) or index.ip(host.split(":")[0])
+        hits.add(m_host, "HTTP Host", ts, src, dst, port, detail=r.get("method", ""))
+        m_url = index.url(url_n)
+        hits.add(m_url, "HTTP URL", ts, src, dst, port, detail=r.get("method", ""))
+        for f in (r.get("resp_fuids") or []) + (r.get("orig_fuids") or []):
+            fuid_url[f] = "http://" + hostport + uri
+            last = uri.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+            if last:
+                fuid_name.setdefault(f, last)
+        if r.get("username") or r.get("password"):
+            cleartext_auth.append({"ts": ts, "proto": "HTTP Basic", "src": src, "dst": dst, "user": r.get("username") or "?"})
+        if len(http_rows) < max_rows:
+            http_rows.append({
+                "ts": ts, "src": src, "dst": dst, "port": port, "method": r.get("method", ""), "host": host,
+                "uri": uri[:300], "status": r.get("status_code"), "ua": (r.get("user_agent") or "")[:200],
+                "req_len": r.get("request_body_len", 0), "resp_len": r.get("response_body_len", 0),
+                "mime": ",".join(r.get("resp_mime_types") or []), "ioc": bool(m_host or m_url),
+            })
+
+    # ======================= SMB / FTP имена файлов
+    for r in read_log(zdir / "smb_files.log"):
+        if r.get("fuid") and r.get("name"):
+            fuid_name[r["fuid"]] = r["name"]
+    ftp_users = []
+    for r in read_log(zdir / "ftp.log"):
+        if r.get("fuid") and r.get("arg"):
+            fuid_name[r["fuid"]] = r["arg"].rsplit("/", 1)[-1]
+        if r.get("user") and r.get("user") != "<unknown>" and len(ftp_users) < 50:
+            ftp_users.append({"ts": r.get("ts"), "proto": "FTP", "src": r.get("id.orig_h"), "dst": r.get("id.resp_h"), "user": r.get("user")})
+    cleartext_auth += ftp_users
+
+    # ======================= TLS
+    sni_stats: dict[str, dict] = {}
+    tls_versions = Counter()
+    invalid_certs = []
+    tls_total = 0
+    for r in read_log(zdir / "ssl.log"):
+        tls_total += 1
+        ts, src, dst = r.get("ts", 0), r.get("id.orig_h", ""), r.get("id.resp_h", "")
+        sni = (r.get("server_name") or "").lower()
+        ver = r.get("version") or "?"
+        tls_versions[ver] += 1
+        if sni:
+            ip_names[dst][sni] += 1
+            hits.add(index.domain(sni), "TLS SNI", ts, src, dst, r.get("id.resp_p"))
+        key = sni or f"[{dst}]"
+        s = sni_stats.setdefault(key, {"sni": key, "count": 0, "dst": set(), "versions": Counter(), "validation": Counter(), "ja3": set(), "ja4": set()})
+        s["count"] += 1
+        if len(s["dst"]) < 10:
+            s["dst"].add(dst)
+        s["versions"][ver] += 1
+        vs = r.get("validation_status")
+        if vs:
+            s["validation"][vs] += 1
+            if vs != "ok" and not is_local(dst) and len(invalid_certs) < max_rows:
+                invalid_certs.append({"ts": ts, "src": src, "dst": dst, "sni": sni, "status": vs})
+
+    # ======================= Suricata
+    alerts: dict[int, dict] = {}
+    suri_ok = (sdir / "eve.json").exists()
+    for r in read_log(sdir / "eve.json"):
+        et = r.get("event_type")
+        if et == "alert":
+            a = r.get("alert") or {}
+            sid = a.get("signature_id", 0)
+            ts = suri_ts(r.get("timestamp", ""))
+            e = alerts.setdefault(sid, {"sid": sid, "signature": a.get("signature", ""), "category": a.get("category", ""),
+                                        "severity": a.get("severity", 3), "count": 0, "first": ts, "last": ts, "pairs": Counter()})
+            e["count"] += 1
+            e["first"], e["last"] = min(e["first"], ts), max(e["last"], ts)
+            e["pairs"][f"{r.get('src_ip')}:{r.get('src_port', '')} → {r.get('dest_ip')}:{r.get('dest_port', '')}"] += 1
+        elif et == "tls":
+            t = r.get("tls") or {}
+            ts = suri_ts(r.get("timestamp", ""))
+            sni = (t.get("sni") or "").lower()
+            key = sni or f"[{r.get('dest_ip')}]"
+            ja3 = (t.get("ja3") or {}).get("hash") if isinstance(t.get("ja3"), dict) else None
+            ja4 = t.get("ja4") if isinstance(t.get("ja4"), str) else None
+            s = sni_stats.get(key)
+            if ja3:
+                hits.add(index.hash("ja3", ja3), "TLS JA3", ts, r.get("src_ip", ""), r.get("dest_ip", ""), r.get("dest_port"), detail=sni)
+                if s is not None and len(s["ja3"]) < 5:
+                    s["ja3"].add(ja3)
+            if ja4:
+                hits.add(index.hash("ja4", ja4), "TLS JA4", ts, r.get("src_ip", ""), r.get("dest_ip", ""), r.get("dest_port"), detail=sni)
+                if s is not None and len(s["ja4"]) < 5:
+                    s["ja4"].add(ja4)
+
+    # ======================= Файлы
+    files = []
+    files_total = 0
+    extract_dir = zdir / "extract_files"
+    for r in read_log(zdir / "files.log"):
+        files_total += 1
+        fuid = r.get("fuid", "")
+        ts = r.get("ts", 0)
+        if "id.orig_h" in r:
+            o, p = r.get("id.orig_h", ""), r.get("id.resp_h", "")
+            sender, receiver = (o, p) if r.get("is_orig") else (p, o)
+        else:  # Zeek < 5
+            sender = (r.get("tx_hosts") or [""])[0]
+            receiver = (r.get("rx_hosts") or [""])[0]
+        sl, rl = is_local(sender), is_local(receiver)
+        direction = "внутри сети" if sl and rl else "загрузка в сеть" if rl else "выгрузка наружу" if sl else "внешний"
+        ioc = []
+        for kind in ("sha256", "sha1", "md5"):
+            m = index.hash(kind, r.get(kind) or "")
+            if m:
+                hits.add(m, f"Файл ({kind.upper()})", ts, sender, receiver, detail=r.get("filename") or fuid_name.get(fuid, ""))
+                ioc.extend(m.entries)
+                break
+        extracted = r.get("extracted")
+        files.append({
+            "ts": ts, "fuid": fuid, "proto": r.get("source", ""), "sender": sender, "receiver": receiver,
+            "direction": direction, "filename": r.get("filename") or fuid_name.get(fuid, ""),
+            "mime": r.get("mime_type") or "", "size": r.get("seen_bytes") or r.get("total_bytes") or 0,
+            "total": r.get("total_bytes"), "missing": r.get("missing_bytes", 0),
+            "md5": r.get("md5", ""), "sha1": r.get("sha1", ""), "sha256": r.get("sha256", ""),
+            "extracted": extracted if extracted and (extract_dir / extracted).exists() else "",
+            "url": fuid_url.get(fuid, ""), "ioc": ioc,
+        })
+    files.sort(key=lambda f: (not f["ioc"], f["ts"]))
+    files_shown = files[:max_rows]
+
+    # ======================= Соединения
+    conns_total = 0
+    bytes_total = 0
+    pkts_total = 0
+    t_min, t_max = None, None
+    per_sec_c = Counter()
+    per_sec_b = Counter()
+    talkers: dict[str, list] = defaultdict(lambda: [0, 0, 0])   # out, in, conns
+    ext: dict[str, dict] = {}
+    services = defaultdict(lambda: [0, 0])
+    ports = defaultdict(lambda: [0, 0])
+    top_conn: list = []
+    beacons_ts: dict[tuple, list] = {}
+    upload_sum: dict[tuple, list] = defaultdict(lambda: [0, 0, 0.0, 0.0])
+    long_conns = []
+    unusual = Counter()
+    cleartext = Counter()
+    ignore_ports = set(heur.get("beacon_ignore_ports", []))
+    long_sec = float(heur["long_conn_hours"]) * 3600
+    seq = 0
+    for r in read_log(zdir / "conn.log"):
+        conns_total += 1
+        ts = r.get("ts", 0.0)
+        src, dst = r.get("id.orig_h", ""), r.get("id.resp_h", "")
+        sp, dp = r.get("id.orig_p", 0), r.get("id.resp_p", 0)
+        proto = r.get("proto", "")
+        svc = r.get("service") or ""
+        ob = r.get("orig_ip_bytes") or r.get("orig_bytes") or 0
+        rb = r.get("resp_ip_bytes") or r.get("resp_bytes") or 0
+        pk = (r.get("orig_pkts") or 0) + (r.get("resp_pkts") or 0)
+        dur = r.get("duration") or 0.0
+        tot = ob + rb
+        bytes_total += tot
+        pkts_total += pk
+        end = ts + dur
+        t_min = ts if t_min is None else min(t_min, ts)
+        t_max = end if t_max is None else max(t_max, end)
+        sec = int(ts)
+        per_sec_c[sec] += 1
+        per_sec_b[sec] += tot
+        talkers[src][0] += ob
+        talkers[src][1] += rb
+        talkers[src][2] += 1
+        talkers[dst][0] += rb
+        talkers[dst][1] += ob
+        talkers[dst][2] += 1
+        if r.get("orig_l2_addr") and is_local(src):
+            host_info[src].setdefault("mac", r["orig_l2_addr"])
+        sl, dl = is_local(src), is_local(dst)
+        m_dst = index.ip(dst)
+        m_src = index.ip(src)
+        hits.add(m_dst, "Соединение (получатель)", ts, src, dst, dp, detail=f"{proto}/{dp} {svc}")
+        hits.add(m_src, "Соединение (инициатор)", ts, src, dst, dp, detail=f"{proto}/{dp} {svc}")
+        if not dl:
+            e = ext.get(dst)
+            if e is None:
+                e = ext[dst] = {"ip": dst, "bytes": 0, "conns": 0, "ports": Counter(), "services": Counter(), "clients": set()}
+            e["bytes"] += tot
+            e["conns"] += 1
+            e["ports"][f"{proto}/{dp}"] += 1
+            if svc:
+                e["services"][svc] += 1
+            if len(e["clients"]) < 20:
+                e["clients"].add(src)
+        for s in (svc.split(",") if svc else ["—"]):
+            services[s][0] += 1
+            services[s][1] += tot
+        ports[(proto, dp)][0] += 1
+        ports[(proto, dp)][1] += tot
+        seq += 1
+        row = (tot, seq, {"ts": ts, "uid": r.get("uid", ""), "src": src, "sp": sp, "dst": dst, "dp": dp, "proto": proto,
+                          "svc": svc, "dur": dur, "ob": ob, "rb": rb, "state": r.get("conn_state", ""),
+                          "ioc": bool(m_dst or m_src)})
+        if len(top_conn) < max_rows:
+            heapq.heappush(top_conn, row)
+        elif tot > top_conn[0][0]:
+            heapq.heapreplace(top_conn, row)
+        # эвристики
+        if sl and not dl and dp not in ignore_ports:
+            k = (src, dst, dp, proto)
+            lst = beacons_ts.get(k)
+            if lst is None:
+                if len(beacons_ts) < 200000:
+                    beacons_ts[k] = [ts]
+            elif len(lst) < 5000:
+                lst.append(ts)
+            u = upload_sum[(src, dst)]
+            u[0] += r.get("orig_bytes") or 0
+            u[1] += 1
+            u[2] = ts if not u[2] else min(u[2], ts)
+            u[3] = max(u[3], end)
+        if dur >= long_sec and len(long_conns) < max_rows:
+            long_conns.append({"ts": ts, "src": src, "dst": dst, "dp": dp, "proto": proto, "svc": svc, "dur": dur, "bytes": tot})
+        if svc:
+            for s in svc.split(","):
+                std = STD_PORTS.get(s)
+                if std is not None and dp not in std:
+                    unusual[(s, proto, dp, dst)] += 1
+        elif proto == "tcp" and dp in CLEARTEXT_PORTS and r.get("conn_state") in ("SF", "S1", "S2", "S3", "RSTO", "RSTR"):
+            cleartext[(CLEARTEXT_PORTS[dp], src, dst, dp)] += 1
+        if svc and any(s in ("ftp", "telnet", "pop3", "imap") for s in svc.split(",")):
+            cleartext[(svc.upper(), src, dst, dp)] += 1
+
+    # ---- таймлайн
+    timeline = {"bucket": 0, "start": 0, "conns": [], "bytes": []}
+    if per_sec_c:
+        lo, hi = min(per_sec_c), max(per_sec_c)
+        span = max(1, hi - lo + 1)
+        nice = [1, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400]
+        bucket = next((b for b in nice if span / b <= 120), 86400)
+        n = span // bucket + 1
+        cc, bb = [0] * n, [0] * n
+        for s_, v in per_sec_c.items():
+            cc[(s_ - lo) // bucket] += v
+        for s_, v in per_sec_b.items():
+            bb[(s_ - lo) // bucket] += v
+        timeline = {"bucket": bucket, "start": lo, "conns": cc, "bytes": bb}
+
+    def name_of(ip: str) -> str:
+        c = ip_names.get(ip)
+        if c:
+            return c.most_common(1)[0][0]
+        return host_info.get(ip, {}).get("hostname", "")
+
+    ioc_ips = {o for h in hits.items.values() for o in h["observed"]}
+
+    top_talkers = sorted(
+        ({"ip": ip, "local": is_local(ip), "name": name_of(ip), "out": v[0], "in": v[1], "conns": v[2],
+          "mac": host_info.get(ip, {}).get("mac", ""), "ioc": ip in ioc_ips} for ip, v in talkers.items() if ip),
+        key=lambda x: -(x["out"] + x["in"]))[:50]
+    top_external = sorted(
+        ({"ip": e["ip"], "name": name_of(e["ip"]), "bytes": e["bytes"], "conns": e["conns"],
+          "ports": [p for p, _ in e["ports"].most_common(5)], "services": [s for s, _ in e["services"].most_common(3)],
+          "clients": sorted(e["clients"])[:5], "ioc": e["ip"] in ioc_ips} for e in ext.values()),
+        key=lambda x: (not x["ioc"], -x["bytes"]))[:max_rows]
+    local_hosts = sorted(
+        ({"ip": ip, "name": name_of(ip), "mac": host_info.get(ip, {}).get("mac", ""), "out": v[0], "in": v[1], "conns": v[2]}
+         for ip, v in talkers.items() if ip and is_local(ip) and not _is_mcast(ip)),
+        key=lambda x: -(x["out"] + x["in"]))[:200]
+
+    # ---- маячки
+    beacons = []
+    for (src, dst, dp, proto), lst in beacons_ts.items():
+        if len(lst) < int(heur["beacon_min_conns"]):
+            continue
+        lst.sort()
+        iv = [b - a for a, b in zip(lst, lst[1:]) if b - a > 0.5]
+        if len(iv) < int(heur["beacon_min_conns"]) - 1:
+            continue
+        mean = statistics.fmean(iv)
+        if mean < 2:
+            continue
+        cv = statistics.pstdev(iv) / mean if mean else 9
+        if cv <= float(heur["beacon_max_cv"]):
+            beacons.append({"src": src, "dst": dst, "name": name_of(dst), "dp": dp, "proto": proto, "count": len(lst),
+                            "interval": mean, "cv": cv, "first": lst[0], "last": lst[-1], "ioc": dst in ioc_ips})
+    beacons.sort(key=lambda b: (not b["ioc"], b["cv"]))
+
+    large_uploads = sorted(
+        ({"src": k[0], "dst": k[1], "name": name_of(k[1]), "bytes": v[0], "conns": v[1], "first": v[2], "last": v[3],
+          "ioc": k[1] in ioc_ips}
+         for k, v in upload_sum.items() if v[0] >= float(heur["large_upload_mb"]) * 1024 * 1024),
+        key=lambda x: -x["bytes"])[:max_rows]
+
+    unusual_ports = [{"service": s, "proto": p, "port": port, "dst": d, "name": name_of(d), "count": n}
+                     for (s, p, port, d), n in unusual.most_common(max_rows)]
+    cleartext_list = [{"proto": p, "src": s, "dst": d, "port": port, "count": n} for (p, s, d, port), n in cleartext.most_common(100)]
+
+    # ---- Zeek notice / weird
+    notices = Counter()
+    notice_ex = {}
+    for r in read_log(zdir / "notice.log"):
+        k = (r.get("note", ""), r.get("msg", ""))
+        notices[k] += 1
+        notice_ex.setdefault(k, {"src": r.get("src") or r.get("id.orig_h", ""), "dst": r.get("dst") or r.get("id.resp_h", ""), "ts": r.get("ts")})
+    weird = Counter(r.get("name", "") for r in read_log(zdir / "weird.log"))
+
+    # ---- сборка
+    hits_list = hits.export()
+    for h in hits_list:
+        h["names"] = sorted({name_of(x) for x in h["observed"] if name_of(x)})[:5]
+    alerts_list = sorted(alerts.values(), key=lambda a: (a["severity"], -a["count"]))
+    for a in alerts_list:
+        a["pairs"] = [p for p, _ in a["pairs"].most_common(5)]
+        a["sev_label"] = SEV_LABEL.get(a["severity"], str(a["severity"]))
+
+    sni_list = []
+    for s in sorted(sni_stats.values(), key=lambda x: -x["count"])[:max_rows]:
+        sni_list.append({"sni": s["sni"], "count": s["count"], "dst": sorted(s["dst"]), "versions": dict(s["versions"]),
+                         "validation": dict(s["validation"]), "ja3": sorted(s["ja3"]), "ja4": sorted(s["ja4"])})
+
+    suspicious_dns_list = sorted(
+        ({"name": s["name"], "reason": s["reason"], "count": s["count"], "clients": sorted(s["clients"])[:5]} for s in suspicious_dns.values()),
+        key=lambda x: -x["count"])[:max_rows]
+
+    totals = {
+        "conns": conns_total, "bytes": bytes_total, "pkts": pkts_total,
+        "hosts_local": len(local_hosts), "hosts_external": len(ext),
+        "dns": dns_total, "http": http_total, "tls": tls_total, "files": files_total,
+        "alerts": sum(a["count"] for a in alerts_list), "alert_sigs": len(alerts_list),
+        "ioc_hits": len(hits_list), "notices": sum(notices.values()),
+    }
+    report = {
+        "meta": {**(meta or {}), "generated": time.time(), "ioc_count": index.count, "suricata": suri_ok,
+                 "period": {"start": t_min or 0, "end": t_max or 0, "duration": (t_max - t_min) if t_min else 0}},
+        "totals": totals,
+        "ioc_hits": hits_list,
+        "alerts": alerts_list,
+        "files": files_shown,
+        "timeline": timeline,
+        "top_talkers": top_talkers,
+        "top_external": top_external,
+        "local_hosts": local_hosts,
+        "services": sorted(({"service": k, "conns": v[0], "bytes": v[1]} for k, v in services.items()), key=lambda x: -x["conns"])[:40],
+        "ports": sorted(({"proto": k[0], "port": k[1], "conns": v[0], "bytes": v[1]} for k, v in ports.items()), key=lambda x: -x["conns"])[:60],
+        "connections": [row for _, _, row in sorted(top_conn, key=lambda x: -x[0])],
+        "dns": {
+            "top": [{"name": q, "count": n, "clients": len(dns_clients[q]), "rcode": dict(dns_rcode[q])} for q, n in dns_q.most_common(max_rows)],
+            "nxdomain": [{"name": q, "count": n, "clients": sorted(nx_clients[q])[:5]} for q, n in nx.most_common(200)],
+            "suspicious": suspicious_dns_list,
+            "resolvers": [{"ip": ip, "count": n, "local": is_local(ip), "name": name_of(ip)} for ip, n in resolvers.most_common(20)],
+            "qtypes": dict(qtypes.most_common(15)),
+        },
+        "http": {"requests": http_rows, "hosts": [{"host": h, "count": n} for h, n in http_hosts.most_common(50)],
+                 "user_agents": [{"ua": u, "count": n} for u, n in uas.most_common(40)]},
+        "tls": {"sni": sni_list, "invalid": invalid_certs, "versions": dict(tls_versions)},
+        "notices": [{"note": k[0], "msg": k[1], "count": n, **notice_ex[k]} for k, n in notices.most_common(100)],
+        "weird": [{"name": k, "count": n} for k, n in weird.most_common(40)],
+        "findings": {"beacons": beacons[:200], "large_uploads": large_uploads, "long_conns": sorted(long_conns, key=lambda x: -x["dur"]),
+                     "unusual_ports": unusual_ports, "cleartext": cleartext_list, "cleartext_auth": cleartext_auth[:100]},
+    }
+    report["verdict"] = verdict(report)
+    return report
+
+
+def _is_mcast(ip: str) -> bool:
+    try:
+        a = ipaddress.ip_address(ip)
+        return a.is_multicast or str(a) == "255.255.255.255" or a.is_unspecified
+    except ValueError:
+        return True
+
+
+def verdict(rep: dict) -> dict:
+    reasons_c, reasons_s = [], []
+    n_ioc = len(rep["ioc_hits"])
+    if n_ioc:
+        reasons_c.append(f"обращения к индикаторам компрометации: {n_ioc}")
+    high = [a for a in rep["alerts"] if a["severity"] == 1]
+    mid = [a for a in rep["alerts"] if a["severity"] == 2]
+    if high:
+        reasons_c.append(f"сигнатуры Suricata высокой важности: {len(high)}")
+    if mid:
+        reasons_s.append(f"сигнатуры Suricata средней важности: {len(mid)}")
+    f = rep["findings"]
+    if f["beacons"]:
+        reasons_s.append(f"периодические соединения (маячки): {len(f['beacons'])}")
+    if f["large_uploads"]:
+        reasons_s.append(f"крупные выгрузки наружу: {len(f['large_uploads'])}")
+    if rep["dns"]["suspicious"]:
+        reasons_s.append(f"подозрительные DNS-имена: {len(rep['dns']['suspicious'])}")
+    if rep["tls"]["invalid"]:
+        reasons_s.append(f"TLS с невалидным сертификатом: {len(rep['tls']['invalid'])}")
+    if f["cleartext_auth"]:
+        reasons_s.append(f"учётные данные в открытом виде: {len(f['cleartext_auth'])}")
+    if any(fl["ioc"] for fl in rep["files"]):
+        reasons_c.append("переданы файлы из базы вредоносных")
+    if reasons_c:
+        return {"level": "critical", "label": "Обнаружены признаки компрометации", "reasons": reasons_c + reasons_s}
+    if reasons_s:
+        return {"level": "suspicious", "label": "Есть подозрительная активность", "reasons": reasons_s}
+    return {"level": "clean", "label": "Явных признаков компрометации не найдено", "reasons": []}
+
+
+def summary(rep: dict) -> dict:
+    """Короткая сводка для списка задач."""
+    t = rep["totals"]
+    return {"verdict": rep["verdict"]["level"], "verdict_label": rep["verdict"]["label"], "conns": t["conns"],
+            "bytes": t["bytes"], "ioc_hits": t["ioc_hits"], "alerts": t["alerts"], "files": t["files"],
+            "start": rep["meta"]["period"]["start"], "end": rep["meta"]["period"]["end"]}

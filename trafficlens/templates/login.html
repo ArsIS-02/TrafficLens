@@ -1,0 +1,12 @@
+{% extends "layout.html" %}
+{% block title %}Вход — TrafficLens{% endblock %}
+{% block content %}
+<div class="panel login">
+  <h2>Вход в TrafficLens</h2>
+  <form method="post">
+    <input type="password" name="password" placeholder="Пароль" autofocus autocomplete="current-password">
+    {% if error %}<div class="badge crit" style="margin-bottom:12px">{{ error }}</div>{% endif %}
+    <button class="btn primary" type="submit">Войти</button>
+  </form>
+</div>
+{% endblock %}
