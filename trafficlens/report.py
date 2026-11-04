@@ -14,6 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterator
 
+from . import runner as runner_mod
 from .ioc_store import IOCIndex, Match
 from .ioc_types import TYPE_LABELS, norm_url
 
@@ -90,6 +91,22 @@ class Locality:
 
 
 # ---------------------------------------------------------------- IOC-попадания
+def suricata_meta(cfg: dict, sdir: Path) -> dict:
+    """Статус сигнатурного анализа: отключён, нет правил, нет eve.json или ок."""
+    enabled = bool(cfg.get("suricata", {}).get("enabled", True))
+    rs = runner_mod.rules_status(cfg)
+    ran = (sdir / "eve.json").exists()
+    if not enabled:
+        status, warning = "disabled", "Suricata отключена в конфигурации"
+    elif not rs["available"]:
+        status, warning = "no_rules", "Нет правил Suricata — сигнатурный анализ будет пустым"
+    elif not ran:
+        status, warning = "no_eve", "Suricata не оставила eve.json — сигнатурный анализ не выполнен"
+    else:
+        status, warning = "ok", ""
+    return {"enabled": enabled, "ran": ran, "status": status, "warning": warning, **rs}
+
+
 class Hits:
     def __init__(self):
         self.items: dict[tuple[str, str], dict] = {}
@@ -560,7 +577,8 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
         "ioc_hits": len(hits_list), "notices": sum(notices.values()),
     }
     report = {
-        "meta": {**(meta or {}), "generated": time.time(), "ioc_count": index.count, "suricata": suri_ok,
+        "meta": {**(meta or {}), "generated": time.time(), "ioc_count": index.count,
+                 "suricata": suricata_meta(cfg, sdir), "suricata_ran": suri_ok,
                  "period": {"start": t_min or 0, "end": t_max or 0, "duration": (t_max - t_min) if t_min else 0}},
         "totals": totals,
         "ioc_hits": hits_list,

@@ -143,7 +143,11 @@
       <dt>SHA256 PCAP</dt><dd class="mono copy">{{ r.meta.pcap_sha256 }}</dd>
       <dt>Пакетов</dt><dd>{{ t.pkts|int }}</dd>
       <dt>Zeek</dt><dd>{{ (r.meta.tools or {}).zeek or '—' }}</dd>
-      <dt>Suricata</dt><dd>{% if r.meta.suricata %}{{ (r.meta.tools or {}).suricata or '—' }}{% if (r.meta.tools or {}).rules %}, правил: {{ r.meta.tools.rules.count|int }}{% endif %}{% else %}не запускалась{% endif %}</dd>
+      <dt>Suricata</dt><dd>{% set sm = r.meta.suricata or {} %}
+        {% if sm.status == 'ok' %}{{ (r.meta.tools or {}).suricata or '—' }}, правил: {{ sm.count|int }} ({{ sm.source }})
+        {% elif sm.status == 'disabled' %}отключена
+        {% elif sm.warning %}<span class="badge warn">{{ 'нет правил' if sm.status == 'no_rules' else 'не выполнен' }}</span> {{ sm.warning }}
+        {% else %}не запускалась{% endif %}</dd>
       <dt>База IOC</dt><dd>{{ r.meta.ioc_count|int }} индикаторов на момент сверки</dd>
       {% if r.meta.job_id %}<dt>Задача</dt><dd>{{ r.meta.job_id }}</dd>{% endif %}
     </dl>
@@ -196,7 +200,7 @@
         <td>{{ a.category }}</td><td class="num">{{ a.count }}</td>
         <td class="mono">{% for p in a.pairs %}<div>{{ p }}</div>{% endfor %}</td>
         <td class="nowrap">{{ a.first|ts('%d.%m %H:%M:%S') }}<div class="faint">{{ a.last|ts('%d.%m %H:%M:%S') }}</div></td>
-      </tr>{% else %}{{ empty(6, 'Срабатываний нет' if r.meta.suricata else 'Suricata не запускалась') }}{% endfor %}
+      </tr>{% else %}{% set sm = r.meta.suricata or {} %}{{ empty(6, 'Срабатываний нет' if sm.status == 'ok' else (sm.warning or 'Suricata не запускалась')) }}{% endfor %}
       </tbody>
     </table></div>
   </section>
