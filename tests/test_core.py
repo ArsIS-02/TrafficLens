@@ -110,7 +110,9 @@ def test_clean_report(env, tmp_path):
     rows = [fx.conn(fx.T0 + i, fx.WS, 50000 + i, "93.184.216.34", 443, svc="ssl") for i in range(5)]
     (jd / "zeek" / "conn.log").write_text("".join(json.dumps(r) + "\n" for r in rows))
     rep = report.build(jd, ioc_store.IOCIndex(db), cfg)
-    assert rep["verdict"]["level"] == "clean" and rep["totals"]["conns"] == 5 and not rep["meta"]["suricata"]
+    assert rep["verdict"]["level"] == "clean" and rep["totals"]["conns"] == 5
+    assert rep["meta"]["suricata"]["status"] == "no_rules"
+    assert "Нет правил Suricata" in rep["meta"]["suricata"]["warning"]
 
 
 def test_empty_logs(env, tmp_path):
@@ -121,6 +123,27 @@ def test_empty_logs(env, tmp_path):
     assert rep["totals"]["conns"] == 0 and rep["timeline"]["conns"] == []
     from trafficlens.render import render_report
     assert "Явных признаков" in render_report(rep)
+
+
+def test_suricata_status_report(env, tmp_path, monkeypatch):
+    cfg, db = env
+    jd = tmp_path / "suri-status"
+    (jd / "zeek").mkdir(parents=True)
+    (jd / "suricata").mkdir(parents=True)
+    (jd / "suricata" / "eve.json").write_text("{}\n", encoding="utf-8")
+
+    rep = report.build(jd, ioc_store.IOCIndex(db), cfg)
+    assert rep["meta"]["suricata"]["status"] == "no_rules"
+    assert rep["meta"]["suricata"]["available"] is False
+
+    baked = tmp_path / "baked.rules"
+    baked.write_text('# comment\nalert ip any any -> any any (msg:"t"; sid:1;)\n', encoding="utf-8")
+    from trafficlens import runner
+    monkeypatch.setattr(runner, "BAKED_RULES", baked)
+    rep = report.build(jd, ioc_store.IOCIndex(db), cfg)
+    assert rep["meta"]["suricata"]["status"] == "ok"
+    assert rep["meta"]["suricata"]["source"] == "baked"
+    assert rep["meta"]["suricata"]["count"] == 1
 
 
 def test_suricata_ts():
