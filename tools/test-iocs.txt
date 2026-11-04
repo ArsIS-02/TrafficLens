@@ -1,0 +1,6 @@
+# Тестовые индикаторы к tools/make_test_pcap.py
+# Скопируйте в <data>/ioc/custom/test.txt (или вставьте на странице «Индикаторы и правила»).
+203.0.113.66            # тестовый C2
+evil-c2.example         # домен C2 (совпадёт и api.evil-c2.example)
+http://198.51.100.23/payload.exe # раздача вредоноса
+275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f # EICAR

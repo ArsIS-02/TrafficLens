@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block title %}{{ job.filename }} — TrafficLens{% endblock %}
+{% block content %}
+<div class="report-head">
+  <div>
+    <h1 class="break">{{ job.filename }}</h1>
+    <div class="meta">Задача {{ job.id }} · {{ job.size|bytes }} · создана {{ job.created|ts }}</div>
+  </div>
+  <div class="actions">
+    {% if job.status == 'error' %}<button class="btn" data-action="rerun" data-job="{{ job.id }}">Повторить</button>{% endif %}
+    {% if job.status != 'running' %}<button class="btn danger" data-action="delete-job" data-job="{{ job.id }}" data-back="1">Удалить</button>{% endif %}
+  </div>
+</div>
+<section class="panel" {% if job.status in ('queued', 'running') %}data-job-live="{{ job.id }}"{% endif %}>
+  {% if job.status == 'queued' %}<div><span class="dot busy"></span><strong>В очереди</strong></div>
+  {% elif job.status == 'running' %}<div><span class="dot busy"></span><strong id="job-stage">{{ job.stage or 'Выполняется' }}</strong></div>
+  {% elif job.status == 'error' %}<div class="verdict critical" style="margin:0"><div class="icon">!</div><div><div class="title">Анализ завершился ошибкой</div><div>{{ job.error }}</div></div></div>
+  {% else %}<div>Отчёт не найден — пересоберите анализ.</div>{% endif %}
+  <h3>Журнал</h3>
+  <pre class="log">{{ log or 'пусто' }}</pre>
+</section>
+{% endblock %}

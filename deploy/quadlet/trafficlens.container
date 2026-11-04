@@ -1,0 +1,25 @@
+# Веб-UI и анализ (rootless Podman).
+# Положить в ~/.config/containers/systemd/trafficlens.container, затем:
+#   systemctl --user daemon-reload && systemctl --user start trafficlens
+# Каталог данных: ~/trafficlens/data (создать заранее).
+[Unit]
+Description=TrafficLens — анализ сетевого трафика (веб-UI)
+After=network-online.target
+
+[Container]
+Image=localhost/trafficlens:latest
+ContainerName=trafficlens
+Exec=web
+# Только локально (за Caddy). Для доступа из сети: PublishPort=8095:8080 + правило firewalld
+PublishPort=127.0.0.1:8095:8080
+Volume=%h/trafficlens/data:/data:z
+EnvironmentFile=%h/.config/trafficlens.env
+HealthCmd=/app/bin/healthcheck.sh
+HealthInterval=60s
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

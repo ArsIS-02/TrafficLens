@@ -1,0 +1,73 @@
+{% extends "layout.html" %}
+{% block title %}Индикаторы — TrafficLens{% endblock %}
+{% block content %}
+<div class="kpis">
+  <div class="kpi"><div class="v">{{ stats.total|int }}</div><div class="l">индикаторов в базе</div></div>
+  <div class="kpi"><div class="v">{{ stats.by_source|length }}</div><div class="l">источников с данными</div></div>
+  <div class="kpi"><div class="v">{{ tools.rules.count|int if tools.rules else '0' }}</div><div class="l">правил Suricata</div></div>
+</div>
+<div class="grid two">
+<section class="panel">
+  <div class="panel-head"><h2>Источники IOC</h2><div class="spacer"></div>
+    <button class="btn primary" data-action="ioc-update" {{ 'disabled' if 'iocs' in state.busy }}>{{ 'Обновляется…' if 'iocs' in state.busy else 'Обновить все' }}</button></div>
+  {% if not abusech_key %}<div class="verdict suspicious" style="padding:10px 14px"><div>Не задан <code>Auth-Key</code> abuse.ch — URLhaus, ThreatFox и MalwareBazaar не будут загружаться. Бесплатный ключ: auth.abuse.ch, затем <code>iocs.abusech.auth_key</code> в конфиге или <code>TL_ABUSECH_KEY</code>.</div></div>{% endif %}
+  {% for s in sources %}{% set f = feeds.get(s.id) %}{% set c = stats.by_source.get(s.id, {}) %}
+  <div class="ioc-src">
+    <div>
+      <strong>{{ s.name }}</strong>
+      {% if not s.enabled %}<span class="badge">выключен</span>
+      {% elif not f %}<span class="badge">ещё не загружался</span>
+      {% elif f.ok %}<span class="badge ok">ок</span>{% else %}<span class="badge crit">ошибка</span>{% endif %}
+      <div class="faint">{{ s.note }}</div>
+      {% if f %}<div class="muted" style="font-size:12px">{{ f.updated|ts('%d.%m %H:%M') }} · {{ f.message }}</div>{% endif %}
+      {% if c %}<div style="margin-top:4px">{% for t, n in c|dictsort %}<span class="badge accent" style="margin-right:4px">{{ t }}: {{ n|int }}</span>{% endfor %}</div>{% endif %}
+    </div>
+    <div>{% if s.enabled %}<button class="btn small" data-action="ioc-update" data-source="{{ s.id }}" {{ 'disabled' if 'iocs' in state.busy }}>Обновить</button>{% endif %}</div>
+  </div>
+  {% endfor %}
+</section>
+
+<div>
+<section class="panel">
+  <div class="panel-head"><h2>Проверить индикатор</h2></div>
+  <form id="lookup-form" style="display:flex;gap:8px">
+    <input type="search" id="lookup-q" placeholder="IP, домен, URL или хэш" style="flex:1">
+    <button class="btn primary" type="submit">Найти</button>
+  </form>
+  <div id="lookup-out" style="margin-top:12px"></div>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>Правила Suricata</h2><div class="spacer"></div>
+    <button class="btn" data-action="rules-update" {{ 'disabled' if 'rules' in state.busy }}>{{ 'Обновляются…' if 'rules' in state.busy else 'Обновить ET Open' }}</button></div>
+  <dl class="kv">
+    <dt>Набор</dt><dd>{% if tools.rules %}<code>{{ tools.rules.path }}</code>{% else %}<span class="badge warn">правил нет — Suricata будет работать только как парсер</span>{% endif %}</dd>
+    {% if tools.rules %}<dt>Правил</dt><dd>{{ tools.rules.count|int }}</dd><dt>Обновлены</dt><dd>{{ tools.rules.mtime|ts }}</dd>{% endif %}
+    {% if state.rules_update %}<dt>Последний запуск</dt><dd>{{ 'успешно' if state.rules_update.ok else 'ошибка' }}: <span class="muted">{{ state.rules_update.msg }}</span></dd>{% endif %}
+  </dl>
+</section>
+</div>
+</div>
+
+<section class="panel">
+  <div class="panel-head"><h2>Свои списки</h2><div class="spacer"></div>
+    <select id="custom-name">{% for n in custom %}<option value="{{ n }}">{{ n }}</option>{% endfor %}<option value="__new">+ новый список…</option></select>
+    <input type="text" id="custom-new" placeholder="имя списка (латиницей)" style="display:none">
+  </div>
+  <form id="custom-form">
+    <textarea id="custom-text" spellcheck="false" placeholder="# по одному индикатору в строке, тип определяется сам
+203.0.113.66            # C2 из расследования
+evil-updates.example     # домены матчатся вместе с поддоменами
+https://bad.example/payload.bin
+44d88612fea8a8f36de82e1278abb02f
+ja3:e7d705a3286e19ea42f587b344ee6865
+198.51.100.0/24"></textarea>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn primary" type="submit">Сохранить и применить</button>
+      <button class="btn danger" type="button" id="custom-delete">Удалить список</button>
+      <span class="faint" style="align-self:center">Файлы лежат в <code>ioc/custom/*.txt</code> каталога данных — их можно править и напрямую.</span>
+    </div>
+  </form>
+  <script type="application/json" id="custom-data">{{ custom|tojson }}</script>
+</section>
+{% endblock %}

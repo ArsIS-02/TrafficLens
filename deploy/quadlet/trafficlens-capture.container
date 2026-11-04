@@ -1,0 +1,28 @@
+# Живой захват (rootful Podman: нужен доступ к интерфейсу хоста).
+# Положить в /etc/containers/systemd/trafficlens-capture.container, затем:
+#   sudo systemctl daemon-reload && sudo systemctl start trafficlens-capture
+# Образ должен быть и в хранилище root:  podman save localhost/trafficlens | sudo podman load
+# USER — пользователь, под которым работает rootless-контейнер trafficlens.
+[Unit]
+Description=TrafficLens — живой захват трафика
+After=network-online.target
+
+[Container]
+Image=localhost/trafficlens:latest
+ContainerName=trafficlens-capture
+Exec=capture
+Network=host
+AddCapability=NET_RAW NET_ADMIN
+Volume=/home/USER/trafficlens/data/spool:/data/spool:z
+Environment=TZ=Asia/Yekaterinburg
+# Укажите реальный интерфейс (ip -br link): any захватывает и lo с внутренним трафиком хоста.
+Environment=CAPTURE_IFACE=any
+Environment=CAPTURE_ROTATE=300
+# Не захватывать собственный трафик TrafficLens, Graylog и OpenSearch, чтобы не раздувать файлы:
+Environment="CAPTURE_FILTER=not port 8095 and not port 9000 and not port 9200 and not port 9300 and not port 12201"
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

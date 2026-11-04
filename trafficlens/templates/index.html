@@ -1,0 +1,73 @@
+{% extends "layout.html" %}
+{% macro verdict_badge(s) -%}
+  {%- if s.verdict == 'critical' %}<span class="badge crit">Компрометация</span>
+  {%- elif s.verdict == 'suspicious' %}<span class="badge warn">Подозрительно</span>
+  {%- elif s.verdict == 'clean' %}<span class="badge ok">Чисто</span>
+  {%- else %}<span class="badge">—</span>{% endif %}
+{%- endmacro %}
+{% block content %}
+<div class="grid two">
+  <section class="panel">
+    <div class="panel-head"><h2>Новый анализ</h2></div>
+    <div class="drop" id="drop">
+      <div><strong>Перетащите PCAP сюда</strong> или нажмите, чтобы выбрать</div>
+      <div class="faint" style="margin-top:4px">.pcap, .pcapng, .cap, можно сжатые .gz · до {{ max_mb }} МБ</div>
+    </div>
+    <input type="file" id="file" multiple hidden accept=".pcap,.pcapng,.cap,.dmp,.gz">
+    <div class="progress"><div></div></div>
+  </section>
+  <section class="panel" id="capture-box" data-active="{{ '1' if capture.active else '0' }}">
+    <div class="panel-head"><h2>Живой захват</h2></div>
+    {% if capture.active %}
+      <div><span class="dot on"></span><strong>Идёт захват</strong> <span class="muted">{{ capture.info }}</span></div>
+      {% if capture.current %}<div class="muted" style="margin-top:6px">Текущий файл: <code>{{ capture.current.name }}</code> · {{ capture.current.size|bytes }}</div>{% endif %}
+      <div class="faint" style="margin-top:6px">Закрытые файлы ротации анализируются автоматически.</div>
+    {% else %}
+      <div><span class="dot"></span><strong>Захват не запущен</strong></div>
+      <div class="muted" style="margin-top:6px">Запустите контейнер <code>trafficlens-capture</code> на хосте (см. README) — его файлы будут попадать в очередь сами.</div>
+    {% endif %}
+    <h3>Движки</h3>
+    <dl class="kv">
+      <dt>Zeek</dt><dd>{% if tools.zeek %}{{ tools.zeek }}{% else %}<span class="badge crit">не найден</span>{% endif %}</dd>
+      <dt>Suricata</dt><dd>{% if tools.suricata %}{{ tools.suricata }}{% else %}<span class="badge warn">не найдена</span>{% endif %}</dd>
+      <dt>Правила</dt><dd>{% if tools.rules %}{{ tools.rules.count|int }} шт., {{ tools.rules.mtime|ts('%d.%m.%Y %H:%M') }}{% else %}<span class="badge warn">нет</span>{% endif %}</dd>
+    </dl>
+  </section>
+</div>
+
+<section class="panel flush">
+  <div class="panel-head" style="padding:16px 20px 0"><h2>Анализы</h2><div class="spacer"></div>
+    <input type="search" class="filter" data-filter="jobs-table" placeholder="Фильтр" style="margin:0"></div>
+  <div class="table-wrap" style="max-height:none">
+  <table id="jobs-table">
+    <thead><tr><th data-sort="text">Создан</th><th>Файл</th><th>Источник</th><th>Период трафика</th><th>Статус</th><th>Итог</th>
+      <th class="num" data-sort="num">IOC</th><th class="num" data-sort="num">Алерты</th><th class="num" data-sort="num">Файлы</th><th class="num" data-sort="num">Соединения</th><th></th></tr></thead>
+    <tbody id="jobs-body">
+    {% for j in jobs %}{% set s = j.summary %}
+      <tr class="{{ 'hl' if s.verdict == 'critical' }}">
+        <td class="nowrap" data-v="{{ j.created }}">{{ j.created|ts('%d.%m %H:%M:%S') }}</td>
+        <td class="break"><a href="/jobs/{{ j.id }}">{{ j.filename }}</a><div class="faint">{{ j.size|bytes }}</div></td>
+        <td>{{ {'upload':'загрузка','capture':'захват','cli':'CLI'}.get(j.source, j.source) }}</td>
+        <td class="nowrap muted">{% if s.start %}{{ s.start|ts('%d.%m %H:%M') }} – {{ s.end|ts('%H:%M') }}{% else %}—{% endif %}</td>
+        <td class="nowrap">
+          {% if j.status == 'queued' %}<span data-live><span class="dot busy"></span>в очереди</span>
+          {% elif j.status == 'running' %}<span data-live><span class="dot busy"></span>{{ j.stage or 'выполняется' }}</span>
+          {% elif j.status == 'error' %}<span class="badge crit" title="{{ j.error }}">ошибка</span>
+          {% else %}<span class="dot on"></span>готово{% endif %}
+        </td>
+        <td>{{ verdict_badge(s) if j.status == 'done' else '' }}</td>
+        <td class="num">{% if s.ioc_hits %}<strong style="color:var(--crit)">{{ s.ioc_hits }}</strong>{% else %}{{ s.ioc_hits|default('—') }}{% endif %}</td>
+        <td class="num">{{ s.alerts|default('—') }}</td>
+        <td class="num">{{ s.files|default('—') }}</td>
+        <td class="num">{{ s.conns|int if s.conns is defined else '—' }}</td>
+        <td class="right nowrap">{% if j.status != 'running' %}<button class="btn small danger" data-action="delete-job" data-job="{{ j.id }}">Удалить</button>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="11" class="empty">Пока нет анализов — загрузите PCAP или запустите захват.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/report.js"></script>{% endblock %}

@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Отчёт: {{ r.meta.filename }} — TrafficLens</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%230f6e78'/%3E%3Ccircle cx='7' cy='7' r='3.6' fill='none' stroke='white' stroke-width='1.6'/%3E%3Cpath d='M10 10l3 3' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<style>{{ inline_css()|safe }}</style>
+</head>
+{% set t = r.totals %}{% set f = r.findings %}
+{% macro host(ip, name='', ioc=False) -%}
+<span class="mono copy" data-copy="{{ ip }}">{{ ip }}</span>{% if ioc %} <span class="badge crit">IOC</span>{% endif %}{% if name %}<div class="faint">{{ name }}</div>{% endif %}
+{%- endmacro %}
+{% macro filter(id) %}<input type="search" class="filter" data-filter="{{ id }}" placeholder="Фильтр по таблице">{% endmacro %}
+{% macro empty(cols, text='Нет данных') %}<tr><td colspan="{{ cols }}" class="empty">{{ text }}</td></tr>{% endmacro %}
+{% macro tabbadge(n, cls='') %}{% if n %}<span class="badge {{ cls }}">{{ n }}</span>{% endif %}{% endmacro %}
+{% macro barchart(values, cls='') -%}
+{% set mx = (values|max) if values else 0 %}
+{% set n = values|length %}
+<svg class="chart" viewBox="0 0 {{ n * 10 if n else 10 }} 100" preserveAspectRatio="none" role="img">
+{% for v in values %}{% if v and mx %}{% set h = (v / mx * 98) if v else 0 %}<rect class="{{ cls }}" x="{{ loop.index0 * 10 + 1 }}" y="{{ 100 - h }}" width="8" height="{{ h }}"><title>{{ v }}</title></rect>{% endif %}{% endfor %}
+</svg>
+{%- endmacro %}
+<body class="{{ '' if embedded else 'standalone' }}">
+{% if embedded %}{% set page = 'jobs' %}{% include "_topbar.html" %}{% endif %}
+<main class="wrap">
+
+<div class="report-head">
+  <div>
+    <h1 class="break">{{ r.meta.filename }}</h1>
+    <div class="meta">
+      Трафик: {{ r.meta.period.start|ts }} — {{ r.meta.period.end|ts }} ({{ r.meta.period.duration|dur }})
+      · отчёт {{ r.meta.generated|ts }}
+    </div>
+  </div>
+  {% if embedded %}
+  <div class="actions">
+    <a class="btn" href="/jobs/{{ job.id }}/report.html">Скачать HTML</a>
+    <a class="btn" href="/jobs/{{ job.id }}/report.json">JSON</a>
+    <a class="btn" href="/jobs/{{ job.id }}/pcap">PCAP</a>
+    <button class="btn" data-action="rematch" data-job="{{ job.id }}" title="Пересверить с текущей базой IOC без повторного разбора">Пересверить IOC</button>
+    <button class="btn" data-action="rerun" data-job="{{ job.id }}">Повторить анализ</button>
+    <button class="btn danger" data-action="delete-job" data-job="{{ job.id }}" data-back="1">Удалить</button>
+  </div>
+  {% endif %}
+</div>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="summary">Сводка</button>
+  <button class="tab" data-tab="ioc">IOC {{ tabbadge(r.ioc_hits|length, 'crit') }}</button>
+  <button class="tab" data-tab="alerts">Сигнатуры {{ tabbadge(r.alerts|length, 'warn') }}</button>
+  <button class="tab" data-tab="files">Файлы {{ tabbadge(t.files) }}</button>
+  <button class="tab" data-tab="net">Сетевая активность</button>
+  <button class="tab" data-tab="dns">DNS {{ tabbadge(r.dns.suspicious|length, 'warn') }}</button>
+  <button class="tab" data-tab="http">HTTP</button>
+  <button class="tab" data-tab="tls">TLS {{ tabbadge(r.tls.invalid|length, 'warn') }}</button>
+  {% set nf = f.beacons|length + f.large_uploads|length + f.cleartext_auth|length + f.unusual_ports|length %}
+  <button class="tab" data-tab="findings">Аномалии {{ tabbadge(nf, 'warn') }}</button>
+  <button class="tab" data-tab="zeek">Zeek</button>
+</nav>
+
+<!-- ============================================================ СВОДКА -->
+<section class="tabpane active" id="tab-summary">
+  {% set v = r.verdict %}
+  <div class="verdict {{ v.level }}">
+    <div class="icon">{{ '!' if v.level == 'critical' else '?' if v.level == 'suspicious' else '✓' }}</div>
+    <div>
+      <div class="title">{{ v.label }}</div>
+      {% if v.reasons %}<ul>{% for x in v.reasons %}<li>{{ x }}</li>{% endfor %}</ul>
+      {% else %}<div class="muted">Совпадений с базой IOC ({{ r.meta.ioc_count|int }} индикаторов) и срабатываний сигнатур нет.</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi {{ 'crit' if t.ioc_hits }}"><div class="v">{{ t.ioc_hits }}</div><div class="l">IOC-совпадений</div></div>
+    <div class="kpi {{ 'warn' if t.alerts }}"><div class="v">{{ t.alerts|int }}</div><div class="l">алертов Suricata ({{ t.alert_sigs }} сигн.)</div></div>
+    <div class="kpi"><div class="v">{{ t.files|int }}</div><div class="l">переданных файлов</div></div>
+    <div class="kpi"><div class="v">{{ t.conns|int }}</div><div class="l">соединений</div></div>
+    <div class="kpi"><div class="v">{{ t.bytes|bytes }}</div><div class="l">объём трафика</div></div>
+    <div class="kpi"><div class="v">{{ t.hosts_local }} / {{ t.hosts_external }}</div><div class="l">хостов: локальных / внешних</div></div>
+    <div class="kpi"><div class="v">{{ t.dns|int }}</div><div class="l">DNS-запросов</div></div>
+    <div class="kpi"><div class="v">{{ t.http|int }} / {{ t.tls|int }}</div><div class="l">HTTP / TLS-сессий</div></div>
+  </div>
+
+  {% if r.timeline.conns %}
+  <div class="grid two">
+    <section class="panel">
+      <div class="panel-head"><h2>Соединения во времени</h2><span class="faint">шаг {{ r.timeline.bucket|bucket }}</span></div>
+      {{ barchart(r.timeline.conns) }}
+      <div class="axis"><span>{{ r.timeline.start|ts('%d.%m %H:%M:%S') }}</span><span>{{ (r.timeline.start + r.timeline.bucket * r.timeline.conns|length)|ts('%d.%m %H:%M:%S') }}</span></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Объём во времени</h2><span class="faint">шаг {{ r.timeline.bucket|bucket }}</span></div>
+      {{ barchart(r.timeline.bytes, 'alt') }}
+      <div class="axis"><span>{{ r.timeline.start|ts('%d.%m %H:%M:%S') }}</span><span>макс. {{ (r.timeline.bytes|max)|bytes }} за шаг</span></div>
+    </section>
+  </div>
+  {% endif %}
+
+  <div class="grid two">
+    <section class="panel">
+      <div class="panel-head"><h2>Самые активные хосты</h2><a href="#" data-goto="net">все →</a></div>
+      {% set top = r.top_talkers[:10] %}{% set mx = top[0].out + top[0].in if top else 1 %}
+      <div class="bars">
+      {% for h in top %}
+        <div class="break">{{ host(h.ip, h.name, h.ioc) }}</div>
+        <div class="bar-track"><div class="bar" style="width:{{ ((h.out + h.in) / mx * 100)|round(1) }}%"></div></div>
+        <div class="num">{{ (h.out + h.in)|bytes }}</div>
+      {% else %}<div class="muted">нет данных</div>{% endfor %}
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Протоколы</h2></div>
+      {% set top = r.services[:10] %}{% set mx = top[0].conns if top else 1 %}
+      <div class="bars">
+      {% for s in top %}
+        <div>{{ s.service }}</div>
+        <div class="bar-track"><div class="bar" style="width:{{ (s.conns / mx * 100)|round(1) }}%"></div></div>
+        <div class="num">{{ s.conns|int }} · {{ s.bytes|bytes }}</div>
+      {% else %}<div class="muted">нет данных</div>{% endfor %}
+      </div>
+    </section>
+  </div>
+
+  {% if r.ioc_hits %}
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>Главное: обращения к IOC</h2><div class="spacer"></div><a href="#" data-goto="ioc">подробно →</a></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Индикатор</th><th>Где замечен</th><th>Источник</th><th class="num">Раз</th><th>Хосты</th></tr></thead>
+      <tbody>{% for h in r.ioc_hits[:8] %}<tr class="hl">
+        <td class="break"><span class="badge">{{ h.type_label }}</span> <span class="mono copy">{{ h.value }}</span></td>
+        <td>{{ h.contexts|join(', ') }}</td>
+        <td>{{ h.sources[0].info }}{% if h.sources|length > 1 %} <span class="faint">+{{ h.sources|length - 1 }}</span>{% endif %}</td>
+        <td class="num">{{ h.count }}</td><td class="mono">{{ h.hosts[:4]|join(', ') }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  {% endif %}
+
+  <section class="panel">
+    <div class="panel-head"><h2>Об анализе</h2></div>
+    <dl class="kv">
+      <dt>Файл</dt><dd>{{ r.meta.filename }} ({{ r.meta.size|bytes }})</dd>
+      <dt>SHA256 PCAP</dt><dd class="mono copy">{{ r.meta.pcap_sha256 }}</dd>
+      <dt>Пакетов</dt><dd>{{ t.pkts|int }}</dd>
+      <dt>Zeek</dt><dd>{{ (r.meta.tools or {}).zeek or '—' }}</dd>
+      <dt>Suricata</dt><dd>{% if r.meta.suricata %}{{ (r.meta.tools or {}).suricata or '—' }}{% if (r.meta.tools or {}).rules %}, правил: {{ r.meta.tools.rules.count|int }}{% endif %}{% else %}не запускалась{% endif %}</dd>
+      <dt>База IOC</dt><dd>{{ r.meta.ioc_count|int }} индикаторов на момент сверки</dd>
+      {% if r.meta.job_id %}<dt>Задача</dt><dd>{{ r.meta.job_id }}</dd>{% endif %}
+    </dl>
+  </section>
+</section>
+
+<!-- ============================================================ IOC -->
+<section class="tabpane" id="tab-ioc">
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>Обращения к индикаторам компрометации</h2><div class="spacer"></div>{{ filter('t-ioc') }}</div>
+    <div class="table-wrap"><table id="t-ioc">
+      <thead><tr><th data-sort="text">Тип</th><th data-sort="text">Индикатор</th><th>Наблюдалось</th><th>Контекст</th><th>Источники</th>
+        <th class="num" data-sort="num">Раз</th><th>Первое / последнее</th><th>Хосты</th></tr></thead>
+      <tbody>
+      {% for h in r.ioc_hits %}<tr class="hl">
+        <td>{{ h.type_label }}</td>
+        <td class="break"><span class="mono copy">{{ h.value }}</span>{% if h.port_match %} <span class="badge crit" title="совпал и порт">порт</span>{% endif %}
+          {% if h.names %}<div class="faint">{{ h.names|join(', ') }}</div>{% endif %}</td>
+        <td class="break mono">{{ h.observed[:5]|join(', ') }}</td>
+        <td>{% for c, n in h.contexts.items() %}<div>{{ c }} <span class="faint">×{{ n }}</span></div>{% endfor %}</td>
+        <td>{% for s in h.sources[:4] %}<div><span class="badge accent">{{ s.source }}</span> {{ s.info }}{% if s.tags %} <span class="faint">[{{ s.tags }}]</span>{% endif %}</div>{% endfor %}</td>
+        <td class="num">{{ h.count }}</td>
+        <td class="nowrap">{{ h.first|ts('%d.%m %H:%M:%S') }}<div class="faint">{{ h.last|ts('%d.%m %H:%M:%S') }}</div></td>
+        <td class="mono">{{ h.hosts[:6]|join(', ') }}</td>
+      </tr>{% else %}{{ empty(8, 'Совпадений с базой IOC нет (' ~ (r.meta.ioc_count|int) ~ ' индикаторов)') }}{% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+  {% if r.ioc_hits %}
+  <section class="panel">
+    <h2>Примеры событий</h2>
+    {% for h in r.ioc_hits[:30] %}
+      <h3 class="break" style="text-transform:none">{{ h.value }}</h3>
+      <table><tbody>{% for e in h.examples %}<tr><td class="nowrap">{{ e.ts|ts }}</td><td>{{ e.ctx }}</td><td class="mono">{{ e.src }} → {{ e.dst }}{% if e.port %}:{{ e.port }}{% endif %}</td><td class="break">{{ e.detail }}</td></tr>{% endfor %}</tbody></table>
+    {% endfor %}
+  </section>
+  {% endif %}
+</section>
+
+<!-- ============================================================ SURICATA -->
+<section class="tabpane" id="tab-alerts">
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>Срабатывания сигнатур Suricata</h2><div class="spacer"></div>{{ filter('t-alerts') }}</div>
+    <div class="table-wrap"><table id="t-alerts">
+      <thead><tr><th data-sort="num">Важность</th><th data-sort="text">Сигнатура</th><th data-sort="text">Категория</th><th class="num" data-sort="num">Раз</th><th>Направления</th><th>Период</th></tr></thead>
+      <tbody>
+      {% for a in r.alerts %}<tr class="{{ 'hl' if a.severity == 1 }}">
+        <td data-v="{{ a.severity }}"><span class="badge {{ 'crit' if a.severity == 1 else 'warn' if a.severity == 2 else '' }}">{{ a.sev_label }}</span></td>
+        <td>{{ a.signature }}<div class="faint">sid {{ a.sid }}</div></td>
+        <td>{{ a.category }}</td><td class="num">{{ a.count }}</td>
+        <td class="mono">{% for p in a.pairs %}<div>{{ p }}</div>{% endfor %}</td>
+        <td class="nowrap">{{ a.first|ts('%d.%m %H:%M:%S') }}<div class="faint">{{ a.last|ts('%d.%m %H:%M:%S') }}</div></td>
+      </tr>{% else %}{{ empty(6, 'Срабатываний нет' if r.meta.suricata else 'Suricata не запускалась') }}{% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+</section>
+
+<!-- ============================================================ ФАЙЛЫ -->
+<section class="tabpane" id="tab-files">
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>Передача файлов</h2><span class="faint">всего {{ t.files }}{% if t.files > r.files|length %}, показано {{ r.files|length }}{% endif %}</span><div class="spacer"></div>{{ filter('t-files') }}</div>
+    <div class="table-wrap"><table id="t-files">
+      <thead><tr><th data-sort="text">Время</th><th data-sort="text">Протокол</th><th>Отправитель → получатель</th><th data-sort="text">Направление</th><th data-sort="text">Имя / URL</th>
+        <th data-sort="text">Тип</th><th class="num" data-sort="num">Размер</th><th>Хэши</th><th></th></tr></thead>
+      <tbody>
+      {% for x in r.files %}<tr class="{{ 'hl' if x.ioc }}">
+        <td class="nowrap" data-v="{{ x.ts }}">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td>
+        <td>{{ x.proto }}</td>
+        <td class="mono nowrap">{{ x.sender }}<div>→ {{ x.receiver }}</div></td>
+        <td>{{ x.direction }}</td>
+        <td class="break">{{ x.filename or '—' }}{% if x.url %}<div class="faint">{{ x.url[:160] }}</div>{% endif %}
+          {% if x.ioc %}<div><span class="badge crit">{{ x.ioc[0].info }}</span></div>{% endif %}</td>
+        <td>{{ x.mime }}</td>
+        <td class="num" data-v="{{ x.size }}">{{ x.size|bytes }}{% if x.missing %}<div class="faint">пропущено {{ x.missing|bytes }}</div>{% endif %}</td>
+        <td class="mono" style="font-size:11px">{% if x.sha256 %}<div class="copy" data-copy="{{ x.sha256 }}" title="SHA256">{{ x.sha256[:16] }}…</div>{% endif %}
+          {% if x.md5 %}<div class="copy faint" data-copy="{{ x.md5 }}" title="MD5">md5 {{ x.md5[:12] }}…</div>{% endif %}</td>
+        <td>{% if embedded and x.extracted %}<a class="btn small" href="/jobs/{{ job.id }}/files/{{ x.extracted }}" title="ZIP с паролем infected">ZIP</a>{% endif %}</td>
+      </tr>{% else %}{{ empty(9, 'Передачи файлов не обнаружено') }}{% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+  {% if embedded %}<p class="faint">Извлечённые файлы выдаются в ZIP с паролем <code>infected</code> — так их не запустит антивирус или случайный двойной щелчок.</p>{% endif %}
+</section>
+
+<!-- ============================================================ СЕТЬ -->
+<section class="tabpane" id="tab-net">
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>Внешние адреса</h2><span class="faint">{{ t.hosts_external }}</span><div class="spacer"></div>{{ filter('t-ext') }}</div>
+    <div class="table-wrap"><table id="t-ext">
+      <thead><tr><th data-sort="text">Адрес</th><th class="num" data-sort="num">Объём</th><th class="num" data-sort="num">Соединений</th><th>Порты</th><th>Протоколы</th><th>Локальные клиенты</th></tr></thead>
+      <tbody>{% for e in r.top_external %}<tr class="{{ 'hl' if e.ioc }}">
+        <td>{{ host(e.ip, e.name, e.ioc) }}</td><td class="num" data-v="{{ e.bytes }}">{{ e.bytes|bytes }}</td><td class="num">{{ e.conns }}</td>
+        <td class="mono">{{ e.ports|join(' ') }}</td><td>{{ e.services|join(', ') }}</td><td class="mono">{{ e.clients|join(', ') }}</td>
+      </tr>{% else %}{{ empty(6) }}{% endfor %}</tbody>
+    </table></div>
+  </section>
+  <div class="grid two">
+    <section class="panel flush">
+      <div class="panel-head" style="padding:16px 20px 0"><h2>Локальные хосты</h2></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th data-sort="text">Хост</th><th>MAC</th><th class="num" data-sort="num">Отправлено</th><th class="num" data-sort="num">Получено</th><th class="num" data-sort="num">Соед.</th></tr></thead>
+        <tbody>{% for h in r.local_hosts %}<tr><td>{{ host(h.ip, h.name) }}</td><td class="mono faint">{{ h.mac }}</td>
+          <td class="num" data-v="{{ h.out }}">{{ h.out|bytes }}</td><td class="num" data-v="{{ h.in }}">{{ h.in|bytes }}</td><td class="num">{{ h.conns }}</td></tr>{% else %}{{ empty(5) }}{% endfor %}</tbody>
+      </table></div>
+    </section>
+    <section class="panel flush">
+      <div class="panel-head" style="padding:16px 20px 0"><h2>Порты назначения</h2></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Порт</th><th class="num" data-sort="num">Соединений</th><th class="num" data-sort="num">Объём</th></tr></thead>
+        <tbody>{% for p in r.ports %}<tr><td class="mono">{{ p.proto }}/{{ p.port }}</td><td class="num">{{ p.conns|int }}</td><td class="num" data-v="{{ p.bytes }}">{{ p.bytes|bytes }}</td></tr>{% else %}{{ empty(3) }}{% endfor %}</tbody>
+      </table></div>
+    </section>
+  </div>
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>Крупнейшие соединения</h2><span class="faint">топ {{ r.connections|length }} по объёму из {{ t.conns|int }}</span><div class="spacer"></div>{{ filter('t-conn') }}</div>
+    <div class="table-wrap"><table id="t-conn">
+      <thead><tr><th data-sort="text">Начало</th><th>Источник</th><th>Назначение</th><th data-sort="text">Протокол</th><th class="num" data-sort="num">Длит.</th>
+        <th class="num" data-sort="num">Отпр.</th><th class="num" data-sort="num">Получ.</th><th>Состояние</th></tr></thead>
+      <tbody>{% for c in r.connections %}<tr class="{{ 'hl' if c.ioc }}">
+        <td class="nowrap" data-v="{{ c.ts }}">{{ c.ts|ts('%d.%m %H:%M:%S') }}</td>
+        <td class="mono">{{ c.src }}:{{ c.sp }}</td><td class="mono">{{ c.dst }}:{{ c.dp }}{% if c.ioc %} <span class="badge crit">IOC</span>{% endif %}</td>
+        <td>{{ c.proto }}{% if c.svc %} / {{ c.svc }}{% endif %}</td>
+        <td class="num" data-v="{{ c.dur }}">{{ c.dur|dur }}</td><td class="num" data-v="{{ c.ob }}">{{ c.ob|bytes }}</td><td class="num" data-v="{{ c.rb }}">{{ c.rb|bytes }}</td>
+        <td class="mono faint">{{ c.state }}</td></tr>{% else %}{{ empty(8) }}{% endfor %}</tbody>
+    </table></div>
+  </section>
+</section>
+
+<!-- ============================================================ DNS -->
+<section class="tabpane" id="tab-dns">
+  {% if r.dns.suspicious %}
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>Подозрительные имена</h2><span class="faint">эвристика: длина, энтропия, TXT</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Имя</th><th>Причина</th><th class="num">Раз</th><th>Клиенты</th></tr></thead>
+      <tbody>{% for d in r.dns.suspicious %}<tr><td class="mono break">{{ d.name }}</td><td>{{ d.reason }}</td><td class="num">{{ d.count }}</td><td class="mono">{{ d.clients|join(', ') }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  {% endif %}
+  <div class="grid two">
+    <section class="panel flush">
+      <div class="panel-head" style="padding:16px 20px 0"><h2>Запрашиваемые имена</h2><div class="spacer"></div>{{ filter('t-dns') }}</div>
+      <div class="table-wrap"><table id="t-dns">
+        <thead><tr><th data-sort="text">Имя</th><th class="num" data-sort="num">Запросов</th><th class="num" data-sort="num">Клиентов</th><th>Ответы</th></tr></thead>
+        <tbody>{% for d in r.dns.top %}<tr><td class="mono break">{{ d.name }}</td><td class="num">{{ d.count }}</td><td class="num">{{ d.clients }}</td>
+          <td class="faint">{% for k, n in d.rcode.items() %}{{ k }}{% if d.rcode|length > 1 %}×{{ n }}{% endif %} {% endfor %}</td></tr>{% else %}{{ empty(4) }}{% endfor %}</tbody>
+      </table></div>
+    </section>
+    <div>
+      <section class="panel flush">
+        <div class="panel-head" style="padding:16px 20px 0"><h2>NXDOMAIN</h2><span class="faint">несуществующие имена</span></div>
+        <div class="table-wrap" style="max-height:300px"><table>
+          <thead><tr><th>Имя</th><th class="num">Раз</th><th>Клиенты</th></tr></thead>
+          <tbody>{% for d in r.dns.nxdomain %}<tr><td class="mono break">{{ d.name }}</td><td class="num">{{ d.count }}</td><td class="mono">{{ d.clients|join(', ') }}</td></tr>{% else %}{{ empty(3) }}{% endfor %}</tbody>
+        </table></div>
+      </section>
+      <section class="panel">
+        <h2>DNS-серверы</h2>
+        <table><tbody>{% for s in r.dns.resolvers %}<tr><td>{{ host(s.ip, s.name) }}</td><td>{% if not s.local %}<span class="badge warn">внешний</span>{% endif %}</td><td class="num">{{ s.count|int }}</td></tr>{% endfor %}</tbody></table>
+        <h3>Типы запросов</h3>
+        <div>{% for k, n in r.dns.qtypes.items() %}<span class="badge" style="margin:0 4px 4px 0">{{ k }}: {{ n|int }}</span>{% endfor %}</div>
+      </section>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ HTTP -->
+<section class="tabpane" id="tab-http">
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>HTTP-запросы</h2><span class="faint">всего {{ t.http|int }}{% if t.http > r.http.requests|length %}, показано {{ r.http.requests|length }}{% endif %}</span><div class="spacer"></div>{{ filter('t-http') }}</div>
+    <div class="table-wrap"><table id="t-http">
+      <thead><tr><th data-sort="text">Время</th><th>Клиент</th><th data-sort="text">Метод</th><th data-sort="text">Хост</th><th>URI</th><th class="num" data-sort="num">Код</th><th class="num" data-sort="num">Ответ</th><th>Тип</th><th>User-Agent</th></tr></thead>
+      <tbody>{% for h in r.http.requests %}<tr class="{{ 'hl' if h.ioc }}">
+        <td class="nowrap" data-v="{{ h.ts }}">{{ h.ts|ts('%d.%m %H:%M:%S') }}</td><td class="mono">{{ h.src }}</td><td>{{ h.method }}</td>
+        <td class="mono break">{{ h.host }}</td><td class="mono break">{{ h.uri }}</td><td class="num">{{ h.status or '—' }}</td>
+        <td class="num" data-v="{{ h.resp_len }}">{{ h.resp_len|bytes }}</td><td class="faint">{{ h.mime }}</td><td class="faint break" style="font-size:12px">{{ h.ua }}</td></tr>{% else %}{{ empty(9, 'HTTP-трафика нет') }}{% endfor %}</tbody>
+    </table></div>
+  </section>
+  <div class="grid two">
+    <section class="panel"><h2>Хосты</h2><table><tbody>{% for h in r.http.hosts %}<tr><td class="mono break">{{ h.host }}</td><td class="num">{{ h.count }}</td></tr>{% else %}{{ empty(2) }}{% endfor %}</tbody></table></section>
+    <section class="panel"><h2>User-Agent</h2><table><tbody>{% for u in r.http.user_agents %}<tr><td class="break" style="font-size:12px">{{ u.ua }}</td><td class="num">{{ u.count }}</td></tr>{% else %}{{ empty(2) }}{% endfor %}</tbody></table></section>
+  </div>
+</section>
+
+<!-- ============================================================ TLS -->
+<section class="tabpane" id="tab-tls">
+  {% if r.tls.invalid %}
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>Внешние TLS с невалидным сертификатом</h2></div>
+    <div class="table-wrap" style="max-height:320px"><table>
+      <thead><tr><th>Время</th><th>Клиент</th><th>Сервер</th><th>SNI</th><th>Статус проверки</th></tr></thead>
+      <tbody>{% for x in r.tls.invalid %}<tr><td class="nowrap">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td><td class="mono">{{ x.src }}</td><td class="mono">{{ x.dst }}</td><td class="mono break">{{ x.sni or '—' }}</td><td>{{ x.status }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  {% endif %}
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>TLS-серверы (SNI)</h2><span class="faint">{% for k, n in r.tls.versions.items() %}{{ k }}: {{ n }} {% endfor %}</span><div class="spacer"></div>{{ filter('t-tls') }}</div>
+    <div class="table-wrap"><table id="t-tls">
+      <thead><tr><th data-sort="text">SNI</th><th class="num" data-sort="num">Сессий</th><th>Адреса</th><th>Версии</th><th>Сертификат</th><th>JA3 / JA4</th></tr></thead>
+      <tbody>{% for s in r.tls.sni %}<tr>
+        <td class="mono break">{{ s.sni }}</td><td class="num">{{ s.count }}</td><td class="mono" style="font-size:12px">{{ s.dst[:3]|join(', ') }}</td>
+        <td>{{ s.versions.keys()|join(', ') }}</td>
+        <td>{% for k, n in s.validation.items() %}<span class="badge {{ 'ok' if k == 'ok' else 'warn' }}">{{ k }}</span> {% endfor %}</td>
+        <td class="mono" style="font-size:11px">{% for j in s.ja3 %}<div class="copy">{{ j }}</div>{% endfor %}{% for j in s.ja4 %}<div class="copy faint">{{ j }}</div>{% endfor %}</td>
+      </tr>{% else %}{{ empty(6, 'TLS-трафика нет') }}{% endfor %}</tbody>
+    </table></div>
+  </section>
+</section>
+
+<!-- ============================================================ АНОМАЛИИ -->
+<section class="tabpane" id="tab-findings">
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>Периодические соединения (маячки)</h2><span class="faint">соединения наружу с почти одинаковым интервалом — типично для C2-маячков и агентов обновлений</span></div>
+    <div class="table-wrap" style="max-height:360px"><table>
+      <thead><tr><th>Источник</th><th>Назначение</th><th class="num" data-sort="num">Соединений</th><th class="num" data-sort="num">Интервал</th><th class="num" data-sort="num">Разброс</th><th>Период</th></tr></thead>
+      <tbody>{% for b in f.beacons %}<tr class="{{ 'hl' if b.ioc }}"><td class="mono">{{ b.src }}</td><td>{{ host(b.dst ~ ':' ~ b.dp, b.name, b.ioc) }}</td>
+        <td class="num">{{ b.count }}</td><td class="num" data-v="{{ b.interval }}">{{ b.interval|dur }}</td><td class="num" data-v="{{ b.cv }}">{{ (b.cv * 100)|round(1) }}%</td>
+        <td class="nowrap">{{ b.first|ts('%d.%m %H:%M') }} – {{ b.last|ts('%H:%M') }}</td></tr>{% else %}{{ empty(6, 'Не обнаружено') }}{% endfor %}</tbody>
+    </table></div>
+  </section>
+  <div class="grid two">
+    <section class="panel flush">
+      <div class="panel-head" style="padding:16px 20px 0"><h2>Крупные выгрузки наружу</h2></div>
+      <div class="table-wrap" style="max-height:320px"><table>
+        <thead><tr><th>Источник</th><th>Получатель</th><th class="num">Отправлено</th><th class="num">Соед.</th></tr></thead>
+        <tbody>{% for u in f.large_uploads %}<tr class="{{ 'hl' if u.ioc }}"><td class="mono">{{ u.src }}</td><td>{{ host(u.dst, u.name, u.ioc) }}</td><td class="num">{{ u.bytes|bytes }}</td><td class="num">{{ u.conns }}</td></tr>{% else %}{{ empty(4, 'Не обнаружено') }}{% endfor %}</tbody>
+      </table></div>
+    </section>
+    <section class="panel flush">
+      <div class="panel-head" style="padding:16px 20px 0"><h2>Протокол на нестандартном порту</h2></div>
+      <div class="table-wrap" style="max-height:320px"><table>
+        <thead><tr><th>Протокол</th><th>Назначение</th><th class="num">Раз</th></tr></thead>
+        <tbody>{% for u in f.unusual_ports %}<tr><td>{{ u.service }}</td><td>{{ host(u.dst ~ ':' ~ u.port, u.name) }}</td><td class="num">{{ u.count }}</td></tr>{% else %}{{ empty(3, 'Не обнаружено') }}{% endfor %}</tbody>
+      </table></div>
+    </section>
+    <section class="panel flush">
+      <div class="panel-head" style="padding:16px 20px 0"><h2>Открытые протоколы и учётные данные</h2></div>
+      <div class="table-wrap" style="max-height:320px"><table>
+        <thead><tr><th>Протокол</th><th>Клиент → сервер</th><th>Пользователь / раз</th></tr></thead>
+        <tbody>
+        {% for c in f.cleartext_auth %}<tr class="hl"><td>{{ c.proto }}</td><td class="mono">{{ c.src }} → {{ c.dst }}</td><td>логин: <strong>{{ c.user }}</strong></td></tr>{% endfor %}
+        {% for c in f.cleartext %}<tr><td>{{ c.proto }}</td><td class="mono">{{ c.src }} → {{ c.dst }}:{{ c.port }}</td><td class="num">{{ c.count }}</td></tr>{% endfor %}
+        {% if not f.cleartext and not f.cleartext_auth %}{{ empty(3, 'Не обнаружено') }}{% endif %}
+        </tbody>
+      </table></div>
+    </section>
+    <section class="panel flush">
+      <div class="panel-head" style="padding:16px 20px 0"><h2>Длительные соединения</h2></div>
+      <div class="table-wrap" style="max-height:320px"><table>
+        <thead><tr><th>Источник → назначение</th><th class="num">Длительность</th><th class="num">Объём</th></tr></thead>
+        <tbody>{% for c in f.long_conns %}<tr><td class="mono">{{ c.src }} → {{ c.dst }}:{{ c.dp }} <span class="faint">{{ c.svc }}</span></td><td class="num">{{ c.dur|dur }}</td><td class="num">{{ c.bytes|bytes }}</td></tr>{% else %}{{ empty(3, 'Не обнаружено') }}{% endfor %}</tbody>
+      </table></div>
+    </section>
+  </div>
+</section>
+
+<!-- ============================================================ ZEEK -->
+<section class="tabpane" id="tab-zeek">
+  <div class="grid two">
+    <section class="panel flush">
+      <div class="panel-head" style="padding:16px 20px 0"><h2>Уведомления Zeek (notice)</h2></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Тип</th><th>Сообщение</th><th>Хосты</th><th class="num">Раз</th></tr></thead>
+        <tbody>{% for n in r.notices %}<tr><td class="mono">{{ n.note }}</td><td class="break">{{ n.msg }}</td><td class="mono">{{ n.src }}{% if n.dst %} → {{ n.dst }}{% endif %}</td><td class="num">{{ n.count }}</td></tr>{% else %}{{ empty(4) }}{% endfor %}</tbody>
+      </table></div>
+    </section>
+    <section class="panel flush">
+      <div class="panel-head" style="padding:16px 20px 0"><h2>Аномалии протоколов (weird)</h2></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Название</th><th class="num">Раз</th></tr></thead>
+        <tbody>{% for w in r.weird %}<tr><td class="mono">{{ w.name }}</td><td class="num">{{ w.count }}</td></tr>{% else %}{{ empty(2) }}{% endfor %}</tbody>
+      </table></div>
+    </section>
+  </div>
+</section>
+
+<p class="faint" style="margin-top:24px">Сформировано TrafficLens · Zeek + Suricata + IOC</p>
+</main>
+{% if embedded %}<script src="/static/app.js"></script>{% endif %}
+<script>{{ inline_js('report.js')|safe }}</script>
+</body>
+</html>
