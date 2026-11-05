@@ -276,6 +276,7 @@ def test_pcap_sha256_computed_once_on_ingest(env, tmp_path, monkeypatch):
     import hashlib
     from trafficlens import worker
 
+    cfg, db = env
     payload = b"\xd4\xc3\xb2\xa1" + b"\0" * 64
     src = tmp_path / "ingest-sha.pcap"
     src.write_bytes(payload)
