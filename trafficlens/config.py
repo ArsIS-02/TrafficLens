@@ -12,7 +12,9 @@ DEFAULTS: dict = {
     "listen": "0.0.0.0",
     "port": 8080,
     # Пароль для входа в веб-UI. Пусто — без авторизации (например, когда доступ закрыт Caddy).
-    "auth": {"password": ""},
+    "auth": {
+        "password_hash": "",
+        "cookie_secure": False,"password": ""},
     "max_upload_mb": 4096,
     "workers": 1,
     # Сети, которые считаются «своими». Всё остальное — внешнее.

@@ -294,3 +294,32 @@ def test_pcap_sha256_computed_once_on_ingest(env, tmp_path, monkeypatch):
     (jd / "zeek").mkdir(parents=True, exist_ok=True)
     summary = pipeline.build_report(cfg, db, job)
     assert summary["pcap_sha256"] == expected
+
+
+def test_auth_hash_headers_redaction_and_ratelimit(env, tmp_path):
+    from trafficlens import web as web_mod, worker
+
+    cfg, db = env
+    cfg["auth"]["password"] = ""
+    cfg["auth"]["password_hash"] = web_mod.hash_password("s3cret")
+    c = web_mod.create_app(cfg, start_workers=False).test_client()
+
+    r = c.get("/")
+    assert r.status_code == 302
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["X-Frame-Options"] == "DENY"
+    assert c.post("/login", data={"password": "wrong"}).status_code == 403
+    assert c.post("/login", data={"password": "s3cret"}).status_code == 302
+
+    c2 = web_mod.create_app(cfg, start_workers=False).test_client()
+    codes = [c2.post("/login", data={"password": "bad"}).status_code for _ in range(6)]
+    assert codes[:5] == [403] * 5 and codes[5] == 429
+
+    pcap = tmp_path / "x.pcap"
+    pcap.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid = worker.enqueue_file(cfg, db, pcap, "x.pcap", "upload", move=False)
+    jobs = c.get("/api/jobs").get_json()["jobs"]
+    mine = [j for j in jobs if j["id"] == jid][0]
+    assert "/" not in mine["pcap_path"]
+    one = c.get(f"/api/jobs/{jid}").get_json()
+    assert "/" not in one["pcap_path"]

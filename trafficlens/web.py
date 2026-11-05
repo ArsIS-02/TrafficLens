@@ -13,7 +13,7 @@ import time
 from functools import wraps
 from pathlib import Path
 
-from flask import (Flask, Response, abort, jsonify, redirect, request, send_file, session, url_for)
+from flask import (Flask, Response, abort, jsonify, redirect, request, send_file, render_template, request, send_file, session, url_for)
 
 from . import feeds, ioc_store, pipeline, render, runner, worker
 from .config import Config
@@ -26,10 +26,60 @@ CUSTOM_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,40}$")
 ALLOWED_EXT = (".pcap", ".pcapng", ".cap", ".dmp", ".pcap.gz", ".pcapng.gz", ".cap.gz")
 
 
+PBKDF2_ITERATIONS = 200_000
+_login_failures: dict[str, list[float]] = {}
+LOGIN_MAX_FAILURES = 5
+LOGIN_WINDOW_SEC = 600
+
+
+def hash_password(password: str, iterations: int = PBKDF2_ITERATIONS) -> str:
+    """PBKDF2-SHA256 -> 'pbkdf2$<iterations>$<salt_hex>$<hash_hex>'. Для записи в auth.password_hash."""
+    import hashlib
+
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
+    return f"pbkdf2${iterations}${salt.hex()}${dk.hex()}"
+
+
+def _check_password(candidate: str, cfg: Config) -> bool:
+    stored = (cfg["auth"].get("password_hash") or "").strip()
+    if stored:
+        import hashlib
+
+        try:
+            scheme, iters, salt_hex, hash_hex = stored.split("$")
+            if scheme != "pbkdf2":
+                return False
+            dk = hashlib.pbkdf2_hmac("sha256", candidate.encode(), bytes.fromhex(salt_hex), int(iters))
+            return secrets.compare_digest(dk.hex(), hash_hex)
+        except (ValueError, TypeError):
+            return False
+    expected = cfg["auth"].get("password") or ""
+    return bool(expected) and secrets.compare_digest(candidate.encode(), expected.encode())
+
+
+def _login_throttled(ip: str) -> bool:
+    now = time.time()
+    fails = [t for t in _login_failures.get(ip, []) if now - t < LOGIN_WINDOW_SEC]
+    _login_failures[ip] = fails
+    return len(fails) >= LOGIN_MAX_FAILURES
+
+
+def _public_job(j: dict | None) -> dict | None:
+    if j is None:
+        return None
+    j = dict(j)
+    j["pcap_path"] = Path(j["pcap_path"]).name
+    return j
+
+
 def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     cfg = cfg or load_config()
     db = DB(cfg.db_path)
     app = Flask(__name__, static_folder=str(render.STATIC), template_folder=str(render.PKG / "templates"))
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_SECURE"] = bool(cfg["auth"].get("cookie_secure", False))
     app.config["MAX_CONTENT_LENGTH"] = int(cfg["max_upload_mb"]) * 1024 * 1024
     app.secret_key = _secret(cfg)
     app.jinja_env.filters.update(render.get_env().filters)
@@ -38,7 +88,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     if start_workers:
         worker.start(cfg, db)
 
-    password = cfg["auth"].get("password") or ""
+    password = cfg["auth"].get("password") or cfg["auth"].get("password_hash") or ""
 
     def require_login(fn):
         @wraps(fn)
@@ -66,16 +116,21 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     # ------------------------------------------------------------- вход
     @app.route("/login", methods=["GET", "POST"])
     def login():
-        err = ""
+        if session.get("ok"):
+            return redirect("/")
         if request.method == "POST":
-            if password and hmac.compare_digest(request.form.get("password", ""), password):
+            ip = request.remote_addr or "unknown"
+            if _login_throttled(ip):
+                time.sleep(1)
+                return render_template("login.html", error="Слишком много попыток, повторите через 10 минут"), 429
+            if _check_password(request.form.get("password") or "", cfg):
+                _login_failures.pop(ip, None)
                 session["ok"] = True
-                session.permanent = True
-                nxt = request.args.get("next", "/")
-                return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else "/")
-            err = "Неверный пароль"
+                return redirect("/")
+            _login_failures.setdefault(ip, []).append(time.time())
             time.sleep(1)
-        return tpl("login.html", error=err)
+            return render_template("login.html", error="Неверный пароль"), 403
+        return render_template("login.html")
 
     @app.post("/logout")
     def logout():
@@ -198,12 +253,12 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     @app.get("/api/jobs")
     @require_login
     def api_jobs():
-        return jsonify(jobs=db.jobs(), capture=worker.capture_status(cfg))
+        return jsonify(jobs=[_public_job(j) for j in db.jobs()], capture=worker.capture_status(cfg))
 
     @app.get("/api/jobs/<job_id>")
     @require_login
     def api_job(job_id):
-        return jsonify(get_job(job_id))
+        return jsonify(_public_job(get_job(job_id)))
 
     @app.post("/api/jobs/<job_id>/rematch")
     @require_login
@@ -292,6 +347,14 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     @app.get("/healthz")
     def healthz():
         return jsonify(ok=True)
+
+    @app.after_request
+    def security_headers(resp):
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        resp.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+        return resp
 
     return app
 
