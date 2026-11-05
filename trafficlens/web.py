@@ -96,7 +96,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         def wrapper(*a, **kw):
             if password and not session.get("ok"):
                 if request.path.startswith("/api/"):
-                    return jsonify(error="требуется вход"), 401
+                    return jsonify(error=et("err_auth_required")), 401
                 return redirect(url_for("login", next=request.path))
             if request.method == "POST" and request.headers.get("X-Requested-With") != "TrafficLens":
                 return jsonify(error="bad request"), 400
@@ -108,6 +108,9 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         if q in SUPPORTED:
             return q
         return i18n_norm(request.cookies.get("tl_lang"))
+
+    def et(key: str) -> str:
+        return i18n_bundle(client_lang()).get(key, key)
 
     def tpl(name, **kw):
         lang = client_lang()
@@ -245,7 +248,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     def api_upload():
         files = request.files.getlist("file")
         if not files:
-            return jsonify(error="файл не передан"), 400
+            return jsonify(error=et("err_no_file")), 400
         ids, errors = [], []
         for f in files:
             name = Path(f.filename or "capture.pcap").name
@@ -286,7 +289,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     def api_rerun(job_id):
         j = get_job(job_id)
         if j["status"] == "running":
-            return jsonify(error="задача уже выполняется"), 409
+            return jsonify(error=et("err_job_running")), 409
         db.update_job(job_id, status="queued", stage="", error="")
         worker.wake.set()
         return jsonify(ok=True)
@@ -296,7 +299,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     def api_delete(job_id):
         j = get_job(job_id)
         if j["status"] == "running":
-            return jsonify(error="нельзя удалить выполняющуюся задачу"), 409
+            return jsonify(error=et("err_cant_delete_running")), 409
         pipeline.delete(cfg, db, job_id)
         return jsonify(ok=True)
 
@@ -304,7 +307,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     @require_login
     def api_ioc_update():
         if worker.busy("iocs"):
-            return jsonify(error="обновление уже идёт"), 409
+            return jsonify(error=et("err_update_running")), 409
         only = (request.get_json(silent=True) or {}).get("source")
         import threading
         threading.Thread(target=worker.run_ioc_update, args=(cfg, db, only), daemon=True).start()
@@ -314,7 +317,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     @require_login
     def api_rules_update():
         if worker.busy("rules"):
-            return jsonify(error="обновление правил уже идёт"), 409
+            return jsonify(error=et("err_rules_running")), 409
         import threading
         threading.Thread(target=worker.run_rules_update, args=(cfg,), daemon=True).start()
         return jsonify(ok=True)
@@ -338,10 +341,10 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
         if not CUSTOM_RE.match(name):
-            return jsonify(error="имя списка: латиница, цифры, - и _"), 400
+            return jsonify(error=et("err_list_name")), 400
         text = data.get("text") or ""
         if len(text) > 5 * 1024 * 1024:
-            return jsonify(error="слишком большой список"), 400
+            return jsonify(error=et("err_list_big")), 400
         items, errors = feeds.parse_custom_text(text, name)
         (cfg.custom_ioc_dir / f"{name}.txt").write_text(text, encoding="utf-8")
         worker.run_ioc_update(cfg, db, only="custom")

@@ -13,6 +13,7 @@
 <main class="wrap">
 {% block content %}{% endblock %}
 </main>
+<script>window.TL_I18N = {{ L|tojson }};</script>
 <script src="/static/app.js"></script>
 {% block scripts %}{% endblock %}
 </body>

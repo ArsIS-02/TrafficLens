@@ -169,11 +169,14 @@ pre.log { background: var(--panel-2); border: 1px solid var(--line); border-radi
 .ioc-src { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 12px 0; border-bottom: 1px solid var(--line-2); }
 .ioc-src:last-child { border-bottom: 0; }
 .copy { cursor: copy; } .copy:hover { color: var(--accent); }
-.netgraph { width: 100%; height: auto; min-height: 420px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+.netgraph { width: 100%; height: auto; min-height: 420px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; touch-action: none; user-select: none; }
 .netgraph .edge { stroke: var(--faint); stroke-opacity: .55; }
 .netgraph .edge.ioc { stroke: var(--crit); stroke-opacity: .9; }
 .netgraph .node { fill: var(--info); stroke: var(--panel); stroke-width: 2; }
 .netgraph .node.local { fill: var(--accent); }
 .netgraph .node.ioc { fill: var(--crit); }
 .netgraph text { font: 11px var(--mono); fill: var(--muted); }
+.netgraph .gnode { cursor: grab; }
+.netgraph .gnode.drag { cursor: grabbing; }
+.netgraph .gnode.drag .node { stroke-width: 3; }
 @media print { .topbar, .tabs, .actions, .filter { display: none !important; } .tabpane { display: block !important; } .table-wrap { max-height: none; } }

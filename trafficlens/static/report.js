@@ -13,7 +13,7 @@
     const c = e.target.closest(".copy");
     if (c && navigator.clipboard) {
       navigator.clipboard.writeText(c.dataset.copy || c.textContent.trim()).then(() => {
-        if (window.TL && TL.toast) TL.toast("Скопировано");
+        if (window.TL && TL.toast) TL.toast((window.TL_I18N || {}).copied || "OK");
       }).catch(() => {});
     }
   });
@@ -76,6 +76,7 @@
     });
     place(locals, 130); place(externals, 850);
     function el(name, attrs) { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+    const edges = [];
     (g.links || []).forEach(l => {
       const a = nodes.get(l.source), b = nodes.get(l.target);
       if (!a || !b) return;
@@ -83,21 +84,58 @@
       const line = el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: "edge" + (l.ioc ? " ioc" : ""), "stroke-width": w.toFixed(1) });
       line.appendChild(el("title", {})).textContent = `${l.source} → ${l.target}:${l.port || ""} ${l.proto || ""} ${l.bytes} B`;
       svg.appendChild(line);
+      edges.push({ line, s: l.source, t: l.target });
     });
     nodes.forEach(n => {
       const r = 5 + Math.sqrt((n.bytes || 0) / maxB) * 10;
-      const c = el("circle", { cx: n.x, cy: n.y, r: r.toFixed(1), class: "node" + (n.local ? " local" : "") + (n.ioc ? " ioc" : "") });
+      const grp = el("g", { class: "gnode", transform: `translate(${n.x} ${n.y})`, "data-id": n.id });
+      const c = el("circle", { cx: 0, cy: 0, r: r.toFixed(1), class: "node" + (n.local ? " local" : "") + (n.ioc ? " ioc" : "") });
       c.appendChild(el("title", {})).textContent = `${n.id}${n.name ? " · " + n.name : ""}`;
-      svg.appendChild(c);
-      const label = el("text", { x: n.x + (n.local ? 14 : -14), y: n.y + 4, "text-anchor": n.local ? "start" : "end" });
+      grp.appendChild(c);
+      const label = el("text", { x: n.local ? 14 : -14, y: 4, "text-anchor": n.local ? "start" : "end" });
       label.textContent = n.name || n.id;
-      svg.appendChild(label);
+      grp.appendChild(label);
+      svg.appendChild(grp);
+      n.grp = grp;
     });
     if (!nodes.size) {
       const t = el("text", { x: 500, y: 280, "text-anchor": "middle" });
       t.textContent = "—";
       svg.appendChild(t);
+      return;
     }
+    // перетаскивание узлов
+    let drag = null;
+    const toSvg = e => {
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const m = svg.getScreenCTM();
+      return m ? pt.matrixTransform(m.inverse()) : pt;
+    };
+    svg.addEventListener("pointerdown", e => {
+      const grp = e.target.closest(".gnode");
+      if (!grp) return;
+      const n = nodes.get(grp.dataset.id);
+      if (!n) return;
+      e.preventDefault();
+      const p = toSvg(e);
+      drag = { n, dx: p.x - n.x, dy: p.y - n.y };
+      try { svg.setPointerCapture(e.pointerId); } catch (err) { }
+      grp.classList.add("drag");
+    });
+    svg.addEventListener("pointermove", e => {
+      if (!drag) return;
+      const p = toSvg(e);
+      drag.n.x = Math.max(30, Math.min(970, p.x - drag.dx));
+      drag.n.y = Math.max(20, Math.min(540, p.y - drag.dy));
+      drag.n.grp.setAttribute("transform", `translate(${drag.n.x} ${drag.n.y})`);
+      edges.forEach(ed => {
+        if (ed.s === drag.n.id) { ed.line.setAttribute("x1", drag.n.x); ed.line.setAttribute("y1", drag.n.y); }
+        if (ed.t === drag.n.id) { ed.line.setAttribute("x2", drag.n.x); ed.line.setAttribute("y2", drag.n.y); }
+      });
+    });
+    const drop = () => { if (drag) { drag.n.grp.classList.remove("drag"); drag = null; } };
+    svg.addEventListener("pointerup", drop);
+    svg.addEventListener("pointercancel", drop);
   }
 
   document.addEventListener("DOMContentLoaded", initGraph);
