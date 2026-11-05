@@ -188,6 +188,22 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
             abort(404)
         return send_file(p, mimetype="application/json", as_attachment=True, download_name=f"trafficlens-{job_id}.json")
 
+    @app.get("/jobs/<job_id>/report.pdf")
+    @require_login
+    def job_report_pdf(job_id):
+        get_job(job_id)
+        p = pipeline.job_dir(cfg, job_id) / "report.json"
+        if not p.exists():
+            abort(404)
+        rep = json.loads(p.read_text(encoding="utf-8"))
+        try:
+            from .pdf import render_pdf
+            data = render_pdf(rep, lang=client_lang())
+        except ImportError:
+            return Response("reportlab не установлен", status=500)
+        return send_file(io.BytesIO(data), mimetype="application/pdf", as_attachment=True,
+                         download_name=f"trafficlens-{job_id}.pdf")
+
     @app.get("/jobs/<job_id>/log")
     @require_login
     def job_log(job_id):

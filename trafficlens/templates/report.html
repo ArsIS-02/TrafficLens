@@ -37,6 +37,7 @@
   {% if embedded %}
   <div class="actions">
     <a class="btn" href="/jobs/{{ job.id }}/report.html">{{ L.dl_html }}</a>
+    <a class="btn" href="/jobs/{{ job.id }}/report.pdf">{{ L.dl_pdf }}</a>
     <a class="btn" href="/jobs/{{ job.id }}/report.json">JSON</a>
     <a class="btn" href="/jobs/{{ job.id }}/pcap">PCAP</a>
     <button class="btn" data-action="rematch" data-job="{{ job.id }}" title="{{ L.rematch_title }}">{{ L.rematch }}</button>

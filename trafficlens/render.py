@@ -88,11 +88,10 @@ def _fmt_l(L: dict, key: str, params: dict) -> str:
         return key
 
 
-def _lreason(ctx, v) -> str:
+def loc_reason(L: dict, v) -> str:
     """Причина из report.json: dict {k, ...} -> локализованная строка; str (старые отчёты) -> как есть."""
     if not isinstance(v, dict):
         return str(v)
-    L = ctx.get("L", {})
     params = {pk: pv for pk, pv in v.items() if pk not in ("k", "pts")}
     if "t" in params:  # тип IOC локализуем отдельно
         params["t"] = L.get("ioc_type_" + str(params["t"]), params["t"])
@@ -100,7 +99,7 @@ def _lreason(ctx, v) -> str:
     return f"+{v['pts']} {text}" if v.get("pts") is not None else text
 
 
-def _lfeed(ctx, v) -> str:
+def loc_feed(L: dict, v) -> str:
     """Сообщение источника IOC: JSON-токен -> локализованная строка; иначе как есть."""
     if isinstance(v, str) and v.startswith("{"):
         try:
@@ -108,12 +107,28 @@ def _lfeed(ctx, v) -> str:
         except ValueError:
             return v
         if isinstance(d, dict) and "k" in d:
-            L = ctx.get("L", {})
             params = {pk: pv for pk, pv in d.items() if pk != "k"}
             if isinstance(params.get("hint"), str) and params["hint"].startswith("feed_err_"):
                 params["hint"] = (" " + L.get(params["hint"], "")) if params["hint"] else ""
             return _fmt_l(L, str(d["k"]), params)
     return str(v)
+
+
+def loc_ctx(L: dict, v) -> str:
+    v = str(v)
+    return L.get(v) or L.get("ctx_" + v, v)  # токены хранятся с префиксом ctx_ (новые) или без (старой сборки)
+
+
+def loc_dir(L: dict, v) -> str:
+    return L.get("dir_" + str(v), str(v))
+
+
+def loc_sev(L: dict, v, fallback=None) -> str:
+    return L.get("sev_" + str(v), fallback or str(v))
+
+
+def loc_ioc(L: dict, v, fallback=None) -> str:
+    return L.get("ioc_type_" + str(v), fallback or str(v))
 
 
 def env() -> Environment:
@@ -123,12 +138,12 @@ def env() -> Environment:
     e.filters["bytes"] = pass_context(lambda ctx, v: fmt_bytes(v, ctx.get("lang", "ru")))
     e.filters["dur"] = pass_context(lambda ctx, v: fmt_dur(v, ctx.get("lang", "ru")))
     e.filters["bucket"] = pass_context(lambda ctx, v: fmt_bucket(v, ctx.get("lang", "ru")))
-    e.filters["lctx"] = pass_context(lambda ctx, v: ctx.get("L", {}).get("ctx_" + str(v), str(v)))
-    e.filters["ldir"] = pass_context(lambda ctx, v: ctx.get("L", {}).get("dir_" + str(v), str(v)))
-    e.filters["lsev"] = pass_context(lambda ctx, v, fallback=None: ctx.get("L", {}).get("sev_" + str(v), fallback or str(v)))
-    e.filters["lioc"] = pass_context(lambda ctx, v, fallback=None: ctx.get("L", {}).get("ioc_type_" + str(v), fallback or str(v)))
-    e.filters["lreason"] = pass_context(_lreason)
-    e.filters["lfeed"] = pass_context(_lfeed)
+    e.filters["lctx"] = pass_context(lambda ctx, v: loc_ctx(ctx.get("L", {}), v))
+    e.filters["ldir"] = pass_context(lambda ctx, v: loc_dir(ctx.get("L", {}), v))
+    e.filters["lsev"] = pass_context(lambda ctx, v, fallback=None: loc_sev(ctx.get("L", {}), v, fallback))
+    e.filters["lioc"] = pass_context(lambda ctx, v, fallback=None: loc_ioc(ctx.get("L", {}), v, fallback))
+    e.filters["lreason"] = pass_context(lambda ctx, v: loc_reason(ctx.get("L", {}), v))
+    e.filters["lfeed"] = pass_context(lambda ctx, v: loc_feed(ctx.get("L", {}), v))
     e.globals["inline_css"] = lambda: (STATIC / "style.css").read_text(encoding="utf-8")
     e.globals["inline_js"] = lambda name: (STATIC / name).read_text(encoding="utf-8")
     e.globals["max"] = max

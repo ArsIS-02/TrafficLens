@@ -100,6 +100,8 @@ def test_report_build(env, tmp_path):
     for s in (">Summary<", "Priority hosts", "Signatures", "Network activity", "Anomalies", "Download HTML", "External addresses", "1 h 16 min",
               "Signs of compromise detected", "beacon", "Domain", "Connection (responder)", "DNS query", "download"):
         assert s in html_en, s
+    # сырые токены не должны попадать в таблицы (в TL_I18N-бандле ключи есть всегда — проверяем ячейки)
+    assert ">ctx_" not in html_en and "ctx_conn_dst," not in html_en
     for s in ("Сводка", "Сигнатуры", "Сетевая активность", "Аномалии", "Приоритетные хосты", "Фильтр по таблице", "Сформировано",
               "Обнаружены признаки", "маяк", "Домен", "Соединение (получатель)", "загрузка в сеть", "DNS-запрос"):
         assert s not in html_en, s
@@ -446,3 +448,33 @@ def test_verdict_scoring(env):
 
     assert report_mod._verdict_legacy(dict(base, ioc_hits=[hit]))["level"] == "critical"
     assert report_mod._verdict_legacy(dict(base))["label"].startswith("Явных")
+
+
+def test_pdf_export(env, tmp_path):
+    """PDF-отчёт собирается на обоих языках, кириллический TTF подхватывается."""
+    cfg, db = env
+    jd = fx.make_job(tmp_path / "job")
+    rep = report.build(jd, ioc_store.IOCIndex(db), cfg, {"filename": "t.pcap"})
+    from trafficlens.pdf import _fonts, render_pdf
+    font, _bold = _fonts()
+    assert font == "TL"  # иначе кириллица в PDF будет битой — шрифт не найден
+    for lang in ("ru", "en"):
+        data = render_pdf(json.loads(json.dumps(rep, default=list)), lang=lang)
+        assert data.startswith(b"%PDF") and len(data) > 10_000
+    assert render_pdf(rep, lang="ru") != render_pdf(rep, lang="en")
+
+
+def test_pdf_endpoint(env, tmp_path):
+    cfg, db = env
+    from trafficlens import worker
+    from trafficlens.web import create_app
+    pcap = tmp_path / "x.pcap"
+    pcap.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid = worker.enqueue_file(cfg, db, pcap, "x.pcap", "upload", move=False)
+    fx.make_job(pipeline.job_dir(cfg, jid))
+    pipeline.rematch(cfg, db, jid)
+    db.update_job(jid, status="done")
+    c = create_app(cfg, start_workers=False).test_client()
+    r = c.get(f"/jobs/{jid}/report.pdf?lang=en")
+    assert r.status_code == 200 and r.data.startswith(b"%PDF")
+    assert r.headers["Content-Type"] == "application/pdf"
