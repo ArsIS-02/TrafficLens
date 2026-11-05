@@ -1,58 +1,58 @@
 {% extends "layout.html" %}
-{% block title %}Индикаторы — TrafficLens{% endblock %}
+{% block title %}{{ L.iocs_title }} — TrafficLens{% endblock %}
 {% block content %}
 <div class="kpis">
-  <div class="kpi"><div class="v">{{ stats.total|int }}</div><div class="l">индикаторов в базе</div></div>
-  <div class="kpi"><div class="v">{{ stats.by_source|length }}</div><div class="l">источников с данными</div></div>
-  <div class="kpi"><div class="v">{{ tools.rules.count|int if tools.rules else '0' }}</div><div class="l">правил Suricata</div></div>
+  <div class="kpi"><div class="v">{{ stats.total|int }}</div><div class="l">{{ L.iocs_total }}</div></div>
+  <div class="kpi"><div class="v">{{ stats.by_source|length }}</div><div class="l">{{ L.iocs_sources }}</div></div>
+  <div class="kpi"><div class="v">{{ tools.rules.count|int if tools.rules else '0' }}</div><div class="l">{{ L.suricata_rules }}</div></div>
 </div>
 <div class="grid two">
 <section class="panel">
-  <div class="panel-head"><h2>Источники IOC</h2><div class="spacer"></div>
-    <button class="btn primary" data-action="ioc-update" {{ 'disabled' if 'iocs' in state.busy }}>{{ 'Обновляется…' if 'iocs' in state.busy else 'Обновить все' }}</button></div>
-  {% if not abusech_key %}<div class="verdict suspicious" style="padding:10px 14px"><div>Не задан <code>Auth-Key</code> abuse.ch — URLhaus, ThreatFox и MalwareBazaar не будут загружаться. Бесплатный ключ: auth.abuse.ch, затем <code>iocs.abusech.auth_key</code> в конфиге или <code>TL_ABUSECH_KEY</code>.</div></div>{% endif %}
+  <div class="panel-head"><h2>{{ L.ioc_sources }}</h2><div class="spacer"></div>
+    <button class="btn primary" data-action="ioc-update" {{ 'disabled' if 'iocs' in state.busy }}>{{ L.updating if 'iocs' in state.busy else L.update_all }}</button></div>
+  {% if not abusech_key %}<div class="verdict suspicious" style="padding:10px 14px"><div>{{ L.abusech_missing }}</div></div>{% endif %}
   {% for s in sources %}{% set f = feeds.get(s.id) %}{% set c = stats.by_source.get(s.id, {}) %}
   <div class="ioc-src">
     <div>
       <strong>{{ s.name }}</strong>
-      {% if not s.enabled %}<span class="badge">выключен</span>
-      {% elif not f %}<span class="badge">ещё не загружался</span>
-      {% elif f.ok %}<span class="badge ok">ок</span>{% else %}<span class="badge crit">ошибка</span>{% endif %}
+      {% if not s.enabled %}<span class="badge">{{ L.disabled }}</span>
+      {% elif not f %}<span class="badge">{{ L.never_loaded }}</span>
+      {% elif f.ok %}<span class="badge ok">{{ L.ok }}</span>{% else %}<span class="badge crit">{{ L.error }}</span>{% endif %}
       <div class="faint">{{ s.note }}</div>
       {% if f %}<div class="muted" style="font-size:12px">{{ f.updated|ts('%d.%m %H:%M') }} · {{ f.message }}</div>{% endif %}
       {% if c %}<div style="margin-top:4px">{% for t, n in c|dictsort %}<span class="badge accent" style="margin-right:4px">{{ t }}: {{ n|int }}</span>{% endfor %}</div>{% endif %}
     </div>
-    <div>{% if s.enabled %}<button class="btn small" data-action="ioc-update" data-source="{{ s.id }}" {{ 'disabled' if 'iocs' in state.busy }}>Обновить</button>{% endif %}</div>
+    <div>{% if s.enabled %}<button class="btn small" data-action="ioc-update" data-source="{{ s.id }}" {{ 'disabled' if 'iocs' in state.busy }}>{{ L.update_btn }}</button>{% endif %}</div>
   </div>
   {% endfor %}
 </section>
 
 <div>
 <section class="panel">
-  <div class="panel-head"><h2>Проверить индикатор</h2></div>
+  <div class="panel-head"><h2>{{ L.check_ioc }}</h2></div>
   <form id="lookup-form" style="display:flex;gap:8px">
-    <input type="search" id="lookup-q" placeholder="IP, домен, URL или хэш" style="flex:1">
-    <button class="btn primary" type="submit">Найти</button>
+    <input type="search" id="lookup-q" placeholder="{{ L.ioc_placeholder }}" style="flex:1">
+    <button class="btn primary" type="submit">{{ L.find }}</button>
   </form>
   <div id="lookup-out" style="margin-top:12px"></div>
 </section>
 
 <section class="panel">
-  <div class="panel-head"><h2>Правила Suricata</h2><div class="spacer"></div>
-    <button class="btn" data-action="rules-update" {{ 'disabled' if 'rules' in state.busy }}>{{ 'Обновляются…' if 'rules' in state.busy else 'Обновить ET Open' }}</button></div>
+  <div class="panel-head"><h2>{{ L.suricata_rules }}</h2><div class="spacer"></div>
+    <button class="btn" data-action="rules-update" {{ 'disabled' if 'rules' in state.busy }}>{{ L.updating if 'rules' in state.busy else L.update_etopen }}</button></div>
   <dl class="kv">
-    <dt>Набор</dt><dd>{% if tools.rules %}<code>{{ tools.rules.path }}</code>{% else %}<span class="badge warn">правил нет — Suricata будет работать только как парсер</span>{% endif %}</dd>
-    {% if tools.rules %}<dt>Правил</dt><dd>{{ tools.rules.count|int }}</dd><dt>Обновлены</dt><dd>{{ tools.rules.mtime|ts }}</dd>{% endif %}
-    {% if state.rules_update %}<dt>Последний запуск</dt><dd>{{ 'успешно' if state.rules_update.ok else 'ошибка' }}: <span class="muted">{{ state.rules_update.msg }}</span></dd>{% endif %}
+    <dt>{{ L.rules }}</dt><dd>{% if tools.rules %}<code>{{ tools.rules.path }}</code>{% else %}<span class="badge warn">{{ L.rules_none }}</span>{% endif %}</dd>
+    {% if tools.rules %}<dt>{{ L.rules }}</dt><dd>{{ tools.rules.count|int }}</dd><dt>{{ L.updated }}</dt><dd>{{ tools.rules.mtime|ts }}</dd>{% endif %}
+    {% if state.rules_update %}<dt>{{ L.status }}</dt><dd>{{ L.ok if state.rules_update.ok else L.error }}: <span class="muted">{{ state.rules_update.msg }}</span></dd>{% endif %}
   </dl>
 </section>
 </div>
 </div>
 
 <section class="panel">
-  <div class="panel-head"><h2>Свои списки</h2><div class="spacer"></div>
-    <select id="custom-name">{% for n in custom %}<option value="{{ n }}">{{ n }}</option>{% endfor %}<option value="__new">+ новый список…</option></select>
-    <input type="text" id="custom-new" placeholder="имя списка (латиницей)" style="display:none">
+  <div class="panel-head"><h2>{{ L.custom_lists }}</h2><div class="spacer"></div>
+    <select id="custom-name">{% for n in custom %}<option value="{{ n }}">{{ n }}</option>{% endfor %}<option value="__new">{{ L.new_list }}</option></select>
+    <input type="text" id="custom-new" placeholder="{{ L.list_name }}" style="display:none">
   </div>
   <form id="custom-form">
     <textarea id="custom-text" spellcheck="false" placeholder="# по одному индикатору в строке, тип определяется сам
@@ -63,9 +63,9 @@ https://bad.example/payload.bin
 ja3:e7d705a3286e19ea42f587b344ee6865
 198.51.100.0/24"></textarea>
     <div style="display:flex;gap:8px;margin-top:10px">
-      <button class="btn primary" type="submit">Сохранить и применить</button>
-      <button class="btn danger" type="button" id="custom-delete">Удалить список</button>
-      <span class="faint" style="align-self:center">Файлы лежат в <code>ioc/custom/*.txt</code> каталога данных — их можно править и напрямую.</span>
+      <button class="btn primary" type="submit">{{ L.save_apply }}</button>
+      <button class="btn danger" type="button" id="custom-delete">{{ L.delete_list }}</button>
+      <span class="faint" style="align-self:center">{{ L.custom_hint }}</span>
     </div>
   </form>
   <script type="application/json" id="custom-data">{{ custom|tojson }}</script>

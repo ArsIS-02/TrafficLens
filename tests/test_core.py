@@ -85,7 +85,9 @@ def test_report_build(env, tmp_path):
     assert "203.0.113.66" in ph[0]["external"] and any("payload.exe" in x for x in ph[0]["reasons"])
     from trafficlens.render import render_report
     html = render_report(rep)
+    assert rep["graph"]["nodes"] and rep["graph"]["links"]
     assert "Приоритетные хосты" in html and fx.WS in html
+    assert 'id="tab-graph"' in html and 'id="netgraph"' in html
     t = rep["totals"]
     assert t["files"] == 3 and t["alerts"] == 2 and t["alert_sigs"] == 1
 
@@ -279,8 +281,23 @@ def test_auth(env):
     c = create_app(cfg, start_workers=False).test_client()
     assert c.get("/").status_code == 302
     assert c.get("/api/jobs").status_code == 401
-    assert c.post("/login", data={"password": "s3cret"}).status_code == 302
+    r = c.get("/login")
+    assert 'name="username"' in r.text and 'name="password"' in r.text
+    assert c.post("/login", data={"username": "root", "password": "s3cret"}).status_code == 403
+    assert c.post("/login", data={"username": "admin", "password": "s3cret"}).status_code == 302
     assert c.get("/").status_code == 200
+
+
+def test_i18n_and_theme_markup(env):
+    cfg, db = env
+    from trafficlens.web import create_app
+    c = create_app(cfg, start_workers=False).test_client()
+    r = c.get("/login?lang=en")
+    assert "Sign in to TrafficLens" in r.text and "Username" in r.text
+    assert "tl_lang=en" in r.headers.get("Set-Cookie", "")
+    assert "data-action=\"theme\"" in r.text
+    r = c.get("/login?lang=ru")
+    assert "Вход в TrafficLens" in r.text
 
 
 def test_pcap_sha256_computed_once_on_ingest(env, tmp_path, monkeypatch):
@@ -319,11 +336,11 @@ def test_auth_hash_headers_redaction_and_ratelimit(env, tmp_path):
     assert r.status_code == 302
     assert r.headers["X-Content-Type-Options"] == "nosniff"
     assert r.headers["X-Frame-Options"] == "DENY"
-    assert c.post("/login", data={"password": "wrong"}).status_code == 403
-    assert c.post("/login", data={"password": "s3cret"}).status_code == 302
+    assert c.post("/login", data={"username": "admin", "password": "wrong"}).status_code == 403
+    assert c.post("/login", data={"username": "admin", "password": "s3cret"}).status_code == 302
 
     c2 = web_mod.create_app(cfg, start_workers=False).test_client()
-    codes = [c2.post("/login", data={"password": "bad"}).status_code for _ in range(6)]
+    codes = [c2.post("/login", data={"username": "admin", "password": "bad"}).status_code for _ in range(6)]
     assert codes[:5] == [403] * 5 and codes[5] == 429
 
     pcap = tmp_path / "x.pcap"

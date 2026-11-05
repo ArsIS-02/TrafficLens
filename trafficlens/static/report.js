@@ -58,4 +58,47 @@
       });
     });
   });
+  // ---------- сетевой граф
+  function initGraph() {
+    const svg = document.getElementById("netgraph");
+    const raw = document.getElementById("graph-data");
+    if (!svg || !raw) return;
+    let g = { nodes: [], links: [] };
+    try { g = JSON.parse(raw.textContent); } catch (e) { }
+    const NS = "http://www.w3.org/2000/svg";
+    const nodes = new Map();
+    const locals = (g.nodes || []).filter(n => n.local);
+    const externals = (g.nodes || []).filter(n => !n.local);
+    const maxB = Math.max(1, ...(g.nodes || []).map(n => n.bytes || 0), ...(g.links || []).map(l => l.bytes || 0));
+    const place = (list, x) => list.forEach((n, i) => {
+      const y = 60 + (list.length <= 1 ? 220 : i * (440 / (list.length - 1)));
+      nodes.set(n.id, { ...n, x, y });
+    });
+    place(locals, 130); place(externals, 850);
+    function el(name, attrs) { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+    (g.links || []).forEach(l => {
+      const a = nodes.get(l.source), b = nodes.get(l.target);
+      if (!a || !b) return;
+      const w = 1 + Math.sqrt((l.bytes || 0) / maxB) * 7;
+      const line = el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: "edge" + (l.ioc ? " ioc" : ""), "stroke-width": w.toFixed(1) });
+      line.appendChild(el("title", {})).textContent = `${l.source} → ${l.target}:${l.port || ""} ${l.proto || ""} ${l.bytes} B`;
+      svg.appendChild(line);
+    });
+    nodes.forEach(n => {
+      const r = 5 + Math.sqrt((n.bytes || 0) / maxB) * 10;
+      const c = el("circle", { cx: n.x, cy: n.y, r: r.toFixed(1), class: "node" + (n.local ? " local" : "") + (n.ioc ? " ioc" : "") });
+      c.appendChild(el("title", {})).textContent = `${n.id}${n.name ? " · " + n.name : ""}`;
+      svg.appendChild(c);
+      const label = el("text", { x: n.x + (n.local ? 14 : -14), y: n.y + 4, "text-anchor": n.local ? "start" : "end" });
+      label.textContent = n.name || n.id;
+      svg.appendChild(label);
+    });
+    if (!nodes.size) {
+      const t = el("text", { x: 500, y: 280, "text-anchor": "middle" });
+      t.textContent = "—";
+      svg.appendChild(t);
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", initGraph);
 })();

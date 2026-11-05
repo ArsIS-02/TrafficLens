@@ -4,19 +4,19 @@
 <div class="report-head">
   <div>
     <h1 class="break">{{ job.filename }}</h1>
-    <div class="meta">Задача {{ job.id }} · {{ job.size|bytes }} · создана {{ job.created|ts }}</div>
+    <div class="meta">{{ L.job_task }} {{ job.id }} · {{ job.size|bytes }} · {{ L.job_created }} {{ job.created|ts }}</div>
   </div>
   <div class="actions">
-    {% if job.status == 'error' %}<button class="btn" data-action="rerun" data-job="{{ job.id }}">Повторить</button>{% endif %}
-    {% if job.status != 'running' %}<button class="btn danger" data-action="delete-job" data-job="{{ job.id }}" data-back="1">Удалить</button>{% endif %}
+    {% if job.status == 'error' %}<button class="btn" data-action="rerun" data-job="{{ job.id }}">{{ L.rerun }}</button>{% endif %}
+    {% if job.status != 'running' %}<button class="btn danger" data-action="delete-job" data-job="{{ job.id }}" data-back="1">{{ L.delete }}</button>{% endif %}
   </div>
 </div>
 <section class="panel" {% if job.status in ('queued', 'running') %}data-job-live="{{ job.id }}"{% endif %}>
-  {% if job.status == 'queued' %}<div><span class="dot busy"></span><strong>В очереди</strong></div>
-  {% elif job.status == 'running' %}<div><span class="dot busy"></span><strong id="job-stage">{{ job.stage or 'Выполняется' }}</strong></div>
-  {% elif job.status == 'error' %}<div class="verdict critical" style="margin:0"><div class="icon">!</div><div><div class="title">Анализ завершился ошибкой</div><div>{{ job.error }}</div></div></div>
-  {% else %}<div>Отчёт не найден — пересоберите анализ.</div>{% endif %}
-  <h3>Журнал</h3>
-  <pre class="log">{{ log or 'пусто' }}</pre>
+  {% if job.status == 'queued' %}<div><span class="dot busy"></span><strong>{{ L.job_queued }}</strong></div>
+  {% elif job.status == 'running' %}<div><span class="dot busy"></span><strong id="job-stage">{{ job.stage or L.job_running }}</strong></div>
+  {% elif job.status == 'error' %}<div class="verdict critical" style="margin:0"><div class="icon">!</div><div><div class="title">{{ L.job_error }}</div><div>{{ job.error }}</div></div></div>
+  {% else %}<div>{{ L.job_no_report }}</div>{% endif %}
+  <h3>{{ L.journal }}</h3>
+  <pre class="log">{{ log or L.empty }}</pre>
 </section>
 {% endblock %}

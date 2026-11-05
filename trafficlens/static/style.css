@@ -11,7 +11,7 @@
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0f1216; --panel: #161a20; --panel-2: #1b2027; --line: #2a3039; --line-2: #222831;
     --text: #e6e9ee; --muted: #9aa4b2; --faint: #6b7584;
     --accent: #3fb6c1; --accent-2: #15333a; --accent-ink: #071417;
@@ -20,6 +20,15 @@
     --shadow: none; color-scheme: dark;
   }
 }
+[data-theme="dark"] {
+  --bg: #0f1216; --panel: #161a20; --panel-2: #1b2027; --line: #2a3039; --line-2: #222831;
+  --text: #e6e9ee; --muted: #9aa4b2; --faint: #6b7584;
+  --accent: #3fb6c1; --accent-2: #15333a; --accent-ink: #071417;
+  --crit: #ff7a59; --crit-bg: #3a1a12; --warn: #f0b13c; --warn-bg: #352812; --ok: #4fc684; --ok-bg: #12301f;
+  --info: #8aa6ff; --info-bg: #1a2442;
+  --shadow: none; color-scheme: dark;
+}
+html { transition: background .15s, color .15s; }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); }
 a { color: var(--accent); text-decoration: none; }
@@ -160,4 +169,11 @@ pre.log { background: var(--panel-2); border: 1px solid var(--line); border-radi
 .ioc-src { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 12px 0; border-bottom: 1px solid var(--line-2); }
 .ioc-src:last-child { border-bottom: 0; }
 .copy { cursor: copy; } .copy:hover { color: var(--accent); }
+.netgraph { width: 100%; height: auto; min-height: 420px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+.netgraph .edge { stroke: var(--faint); stroke-opacity: .55; }
+.netgraph .edge.ioc { stroke: var(--crit); stroke-opacity: .9; }
+.netgraph .node { fill: var(--info); stroke: var(--panel); stroke-width: 2; }
+.netgraph .node.local { fill: var(--accent); }
+.netgraph .node.ioc { fill: var(--crit); }
+.netgraph text { font: 11px var(--mono); fill: var(--muted); }
 @media print { .topbar, .tabs, .actions, .filter { display: none !important; } .tabpane { display: block !important; } .table-wrap { max-height: none; } }

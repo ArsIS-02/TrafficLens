@@ -6,6 +6,8 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from .i18n import bundle as i18n_bundle
+
 PKG = Path(__file__).parent
 STATIC = PKG / "static"
 
@@ -87,5 +89,5 @@ def get_env() -> Environment:
     return _ENV
 
 
-def render_report(rep: dict, embedded: bool = False, job: dict | None = None) -> str:
-    return get_env().get_template("report.html").render(r=rep, embedded=embedded, job=job or {})
+def render_report(rep: dict, embedded: bool = False, job: dict | None = None, lang: str = "ru") -> str:
+    return get_env().get_template("report.html").render(r=rep, embedded=embedded, job=job or {}, lang=lang, L=i18n_bundle(lang))

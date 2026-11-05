@@ -13,12 +13,13 @@ import time
 from functools import wraps
 from pathlib import Path
 
-from flask import (Flask, Response, abort, jsonify, redirect, request, send_file, render_template, request, send_file, session, url_for)
+from flask import Flask, Response, abort, jsonify, redirect, request, send_file, session, url_for
 
 from . import feeds, ioc_store, pipeline, render, runner, worker
 from .config import Config
 from .config import load as load_config
 from .db import DB
+from .i18n import SUPPORTED, bundle as i18n_bundle, norm as i18n_norm
 
 log = logging.getLogger("trafficlens.web")
 JOB_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$")
@@ -102,8 +103,15 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
             return fn(*a, **kw)
         return wrapper
 
+    def client_lang() -> str:
+        q = request.args.get("lang")
+        if q in SUPPORTED:
+            return q
+        return i18n_norm(request.cookies.get("tl_lang"))
+
     def tpl(name, **kw):
-        return render.get_env().get_template(name).render(auth=bool(password), **kw)
+        lang = client_lang()
+        return render.get_env().get_template(name).render(auth=bool(password) and bool(session.get("ok")), lang=lang, L=i18n_bundle(lang), **kw)
 
     def get_job(job_id: str) -> dict:
         if not JOB_RE.match(job_id):
@@ -118,19 +126,23 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     def login():
         if session.get("ok"):
             return redirect("/")
+        lang = client_lang()
         if request.method == "POST":
             ip = request.remote_addr or "unknown"
             if _login_throttled(ip):
                 time.sleep(1)
-                return render_template("login.html", error="Слишком много попыток, повторите через 10 минут"), 429
-            if _check_password(request.form.get("password") or "", cfg):
+                return tpl("login.html", error=i18n_bundle(lang)["login_throttled"], username=cfg["auth"].get("username", "admin")), 429
+            user = (request.form.get("username") or "").strip()
+            expected_user = (cfg["auth"].get("username") or "admin").strip()
+            if user == expected_user and _check_password(request.form.get("password") or "", cfg):
                 _login_failures.pop(ip, None)
                 session["ok"] = True
+                session["user"] = user
                 return redirect("/")
             _login_failures.setdefault(ip, []).append(time.time())
             time.sleep(1)
-            return render_template("login.html", error="Неверный пароль"), 403
-        return render_template("login.html")
+            return tpl("login.html", error=i18n_bundle(lang)["login_bad"], username=user or expected_user), 403
+        return tpl("login.html", username=cfg["auth"].get("username", "admin"))
 
     @app.post("/logout")
     def logout():
@@ -151,7 +163,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         jd = pipeline.job_dir(cfg, job_id)
         if j["status"] == "done" and (jd / "report.json").exists():
             rep = json.loads((jd / "report.json").read_text(encoding="utf-8"))
-            return render.render_report(rep, embedded=True, job=j)
+            return render.render_report(rep, embedded=True, job=j, lang=client_lang())
         logtext = (jd / "job.log").read_text(encoding="utf-8", errors="replace")[-20000:] if (jd / "job.log").exists() else ""
         return tpl("job.html", page="jobs", job=j, log=logtext)
 
@@ -350,6 +362,9 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
 
     @app.after_request
     def security_headers(resp):
+        lang = request.args.get("lang")
+        if lang in SUPPORTED:
+            resp.set_cookie("tl_lang", lang, max_age=365 * 86400, samesite="Lax")
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "no-referrer"

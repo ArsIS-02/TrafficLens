@@ -4,9 +4,12 @@
     TrafficLens
   </a>
   <nav class="nav">
-    <a href="/" class="{{ 'active' if page == 'jobs' }}">Анализы</a>
-    <a href="/iocs" class="{{ 'active' if page == 'iocs' }}">Индикаторы и правила</a>
+    <a href="/" class="{{ 'active' if page == 'jobs' }}">{{ L.nav_jobs }}</a>
+    <a href="/iocs" class="{{ 'active' if page == 'iocs' }}">{{ L.nav_iocs }}</a>
   </nav>
   <div class="spacer"></div>
-  {% if auth %}<button class="btn small" data-action="logout">Выйти</button>{% endif %}
+  <button class="btn small" data-action="theme" title="{{ L.theme }}">◐</button>
+  <a class="btn small" href="?lang=ru" title="Русский" style="{{ 'font-weight:700' if lang == 'ru' }}">RU</a>
+  <a class="btn small" href="?lang=en" title="English" style="{{ 'font-weight:700' if lang == 'en' }}">EN</a>
+  {% if auth %}<button class="btn small" data-action="logout">{{ L.logout }}</button>{% endif %}
 </header>
