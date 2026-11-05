@@ -55,13 +55,7 @@
     <input type="text" id="custom-new" placeholder="{{ L.list_name }}" style="display:none">
   </div>
   <form id="custom-form">
-    <textarea id="custom-text" spellcheck="false" placeholder="# по одному индикатору в строке, тип определяется сам
-203.0.113.66            # C2 из расследования
-evil-updates.example     # домены матчатся вместе с поддоменами
-https://bad.example/payload.bin
-44d88612fea8a8f36de82e1278abb02f
-ja3:e7d705a3286e19ea42f587b344ee6865
-198.51.100.0/24"></textarea>
+    <textarea id="custom-text" spellcheck="false" placeholder="{{ L.custom_placeholder }}"></textarea>
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="btn primary" type="submit">{{ L.save_apply }}</button>
       <button class="btn danger" type="button" id="custom-delete">{{ L.delete_list }}</button>

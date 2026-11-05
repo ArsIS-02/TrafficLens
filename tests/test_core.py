@@ -94,6 +94,13 @@ def test_report_build(env, tmp_path):
     del legacy["graph"]
     html = render_report(legacy)
     assert legacy["graph"]["links"] and 'id="netgraph"' in html
+
+    # английская версия: вся шаблонная обвязка переведена (строки данных остаются как в JSON)
+    html_en = render_report(json.loads(json.dumps(rep, default=list)), lang="en")
+    for s in (">Summary<", "Priority hosts", "Signatures", "Network activity", "Anomalies", "Download HTML", "External addresses"):
+        assert s in html_en, s
+    for s in ("Сводка", "Сигнатуры", "Сетевая активность", "Аномалии", "Приоритетные хосты", "Фильтр по таблице", "Сформировано"):
+        assert s not in html_en, s
     t = rep["totals"]
     assert t["files"] == 3 and t["alerts"] == 2 and t["alert_sigs"] == 1
 

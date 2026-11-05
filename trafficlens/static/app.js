@@ -1,5 +1,7 @@
 /* TrafficLens UI: собственные диалоги (без alert/confirm), уведомления, API, загрузка, обновление списка. */
 window.TL = (function () {
+  const I = window.TL_I18N || {};
+  const tr = (k, vars) => { let s = I[k] || k; if (vars) for (const key in vars) s = s.replace("{" + key + "}", vars[key]); return s; };
   function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
   function dialog({ title, message, ok = "OK", cancel = null, danger = false }) {
@@ -20,8 +22,8 @@ window.TL = (function () {
       document.body.appendChild(back); o.focus();
     });
   }
-  const confirm = (message, opts = {}) => dialog({ title: opts.title || "Подтверждение", message, ok: opts.ok || "Да", cancel: "Отмена", danger: !!opts.danger });
-  const alert = (message, opts = {}) => dialog({ title: opts.title || "Сообщение", message, ok: "Понятно" });
+  const confirm = (message, opts = {}) => dialog({ title: opts.title || tr("confirm_title"), message, ok: opts.ok || tr("yes"), cancel: tr("cancel"), danger: !!opts.danger });
+  const alert = (message, opts = {}) => dialog({ title: opts.title || tr("alert_title"), message, ok: tr("ok_btn") });
 
   let toastBox;
   function toast(text, err = false) {
@@ -54,23 +56,23 @@ window.TL = (function () {
         return;
       }
       if (a === "delete-job") {
-        if (!await confirm("Удалить задачу " + job + " вместе с PCAP, логами и отчётом?", { danger: true, ok: "Удалить" })) return;
-        await api(`/api/jobs/${job}/delete`); toast("Задача удалена");
+        if (!await confirm(tr("del_job_confirm", { job }), { danger: true, ok: tr("delete") })) return;
+        await api(`/api/jobs/${job}/delete`); toast(tr("del_job_ok"));
         if (b.dataset.back) location.href = "/"; else b.closest("tr")?.remove();
       } else if (a === "rematch") {
-        b.disabled = true; await api(`/api/jobs/${job}/rematch`); toast("Отчёт пересобран с актуальными IOC"); setTimeout(() => location.reload(), 600);
+        b.disabled = true; await api(`/api/jobs/${job}/rematch`); toast(tr("rematch_ok")); setTimeout(() => location.reload(), 600);
       } else if (a === "rerun") {
-        if (!await confirm("Запустить полный повторный анализ (Zeek + Suricata)?", { ok: "Запустить" })) return;
+        if (!await confirm(tr("rerun_confirm"), { ok: tr("run_btn") })) return;
         await api(`/api/jobs/${job}/rerun`); location.href = "/jobs/" + job;
       } else if (a === "ioc-update") {
         b.disabled = true; await api("/api/iocs/update", { body: { source: b.dataset.source || null } });
-        toast("Обновление IOC запущено"); pollStatus();
+        toast(tr("ioc_update_started")); pollStatus();
       } else if (a === "rules-update") {
-        b.disabled = true; await api("/api/rules/update"); toast("Обновление правил Suricata запущено"); pollStatus();
+        b.disabled = true; await api("/api/rules/update"); toast(tr("rules_update_started")); pollStatus();
       } else if (a === "logout") {
         await api("/logout"); location.href = "/login";
       }
-    } catch (err) { b.disabled = false; alert(err.message, { title: "Ошибка" }); }
+    } catch (err) { b.disabled = false; alert(err.message, { title: tr("error_title") }); }
   });
 
   function pollStatus() {
@@ -78,7 +80,7 @@ window.TL = (function () {
       try {
         const s = await api("/api/status", { method: "GET" });
         if (s.state.busy.length) { setTimeout(tick, 2500); return; }
-        toast("Готово"); setTimeout(() => location.reload(), 500);
+        toast(tr("done_toast")); setTimeout(() => location.reload(), 500);
       } catch (e) { setTimeout(tick, 4000); }
     };
     setTimeout(tick, 1500);
@@ -104,11 +106,11 @@ window.TL = (function () {
       xhr.onload = () => {
         bar.style.display = "none"; input.value = "";
         let d = {}; try { d = JSON.parse(xhr.responseText); } catch (e) { }
-        if (xhr.status === 413) { alert("Файл больше разрешённого размера (max_upload_mb).", { title: "Не загружено" }); return; }
-        if (d.errors && d.errors.length) alert(d.errors.join("\n"), { title: d.ok ? "Часть файлов не принята" : "Не загружено" });
-        if (d.ok) { toast("Поставлено в очередь: " + d.jobs.length); refreshJobs(); }
+        if (xhr.status === 413) { alert(tr("too_large"), { title: tr("not_uploaded") }); return; }
+        if (d.errors && d.errors.length) alert(d.errors.join("\n"), { title: d.ok ? tr("partial_errors") : tr("not_uploaded") });
+        if (d.ok) { toast(tr("queued_n", { n: d.jobs.length })); refreshJobs(); }
       };
-      xhr.onerror = () => { bar.style.display = "none"; alert("Сеть недоступна или соединение прервано.", { title: "Ошибка загрузки" }); };
+      xhr.onerror = () => { bar.style.display = "none"; alert(tr("net_err"), { title: tr("upload_err") }); };
       xhr.send(fd);
     }
   }
@@ -152,15 +154,15 @@ window.TL = (function () {
       let name = sel.value === "__new" ? document.getElementById("custom-new").value.trim() : sel.value;
       try {
         const d = await api("/api/iocs/custom", { body: { name, text: ta.value } });
-        if (d.errors.length) await alert(`Сохранено индикаторов: ${d.count}.\n\nНе распознаны:\n` + d.errors.join("\n"), { title: "Список сохранён" });
-        else toast(`Сохранено индикаторов: ${d.count}`);
+        if (d.errors.length) await alert(`${tr("saved_n", { n: d.count })}.\n\n${tr("not_recognized")}\n` + d.errors.join("\n"), { title: tr("list_saved") });
+        else toast(tr("saved_n", { n: d.count }));
         location.reload();
-      } catch (err) { alert(err.message, { title: "Ошибка" }); }
+      } catch (err) { alert(err.message, { title: tr("error_title") }); }
     });
     document.getElementById("custom-delete")?.addEventListener("click", async () => {
       if (sel.value === "__new") return;
-      if (!await confirm(`Удалить список «${sel.value}»?`, { danger: true, ok: "Удалить" })) return;
-      try { await api(`/api/iocs/custom/${sel.value}/delete`); location.reload(); } catch (err) { alert(err.message, { title: "Ошибка" }); }
+      if (!await confirm(tr("del_list_confirm", { name: sel.value }), { danger: true, ok: tr("delete") })) return;
+      try { await api(`/api/iocs/custom/${sel.value}/delete`); location.reload(); } catch (err) { alert(err.message, { title: tr("error_title") }); }
     });
   }
   function initLookup() {
@@ -168,12 +170,12 @@ window.TL = (function () {
     f.addEventListener("submit", async e => {
       e.preventDefault();
       const q = document.getElementById("lookup-q").value.trim(); if (!q) return;
-      const out = document.getElementById("lookup-out"); out.textContent = "Ищу…";
+      const out = document.getElementById("lookup-out"); out.textContent = tr("searching");
       try {
         const d = await api("/api/iocs/lookup?q=" + encodeURIComponent(q), { method: "GET" });
         out.innerHTML = "";
-        if (!d.results.length) { out.appendChild(el("div", "badge ok", "Не найдено в базе IOC")); return; }
-        const t = el("table"); t.innerHTML = "<thead><tr><th>Тип</th><th>Значение</th><th>Источник</th><th>Описание</th></tr></thead>";
+        if (!d.results.length) { out.appendChild(el("div", "badge ok", tr("not_in_db"))); return; }
+        const t = el("table"); t.innerHTML = `<thead><tr><th>${tr("col_type")}</th><th>${tr("col_value")}</th><th>${tr("col_source")}</th><th>${tr("col_desc")}</th></tr></thead>`;
         const tb = el("tbody");
         d.results.forEach(r => { const tr = el("tr"); [r.type, r.value, r.source, r.info].forEach(v => tr.appendChild(el("td", null, v))); tb.appendChild(tr); });
         t.appendChild(tb); out.appendChild(t);
