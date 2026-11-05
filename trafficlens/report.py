@@ -556,6 +556,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
     for h in hits_list:
         h["names"] = sorted({name_of(x) for x in h["observed"] if name_of(x)})[:5]
     alerts_list = sorted(alerts.values(), key=lambda a: (a["severity"], -a["count"]))
+    alert_pairs = {a["sid"]: list(a["pairs"].items()) for a in alerts_list}  # все направления для скоринга хостов
     for a in alerts_list:
         a["pairs"] = [p for p, _ in a["pairs"].most_common(5)]
         a["sev_label"] = SEV_LABEL.get(a["severity"], str(a["severity"]))
@@ -568,6 +569,89 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
     suspicious_dns_list = sorted(
         ({"name": s["name"], "reason": s["reason"], "count": s["count"], "clients": sorted(s["clients"])[:5]} for s in suspicious_dns.values()),
         key=lambda x: -x["count"])[:max_rows]
+
+    # ---- приоритетные хосты: с кого начинать расследование
+    weights, thr, scale = _verdict_config(cfg)
+    host_risk: dict[str, dict] = {}
+
+    def risk_add(ip: str, points: float, reason: str, indicator: str = "", external: str = "") -> dict | None:
+        if not ip or not is_local(ip) or _is_mcast(ip) or not points:
+            return None
+        e = host_risk.setdefault(ip, {"score": 0.0, "reasons": [], "indicators": set(), "external": set(),
+                                      "ioc": 0, "alerts": 0, "files": 0, "beacons": 0, "uploads": 0,
+                                      "cleartext": 0, "tls": 0, "dns": 0})
+        e["score"] += float(points)
+        if reason and reason not in e["reasons"]:
+            e["reasons"].append(reason)
+        if indicator:
+            e["indicators"].add(indicator)
+        if external and not is_local(external) and not _is_mcast(external):
+            e["external"].add(external)
+        return e
+
+    for h in hits_list:
+        conf = float(h.get("max_conf") or 0)
+        pts = float(weights["ioc_hit"]) * (conf / 100.0 if scale else 1.0)
+        ext_hit = next((o for o in h.get("observed", []) if not is_local(o)), "")
+        for ip in h.get("hosts", []):
+            e = risk_add(ip, pts, f"IOC {h.get('value')} ({h.get('type_label')})", h.get("value", ""), ext_hit)
+            if e:
+                e["ioc"] += 1
+    for a in alerts_list:
+        sev_pts = float(weights.get(f"alert_sev_{a.get('severity')}", 0))
+        if not sev_pts:
+            continue
+        name = a.get("signature") or f"sid {a.get('sid')}"
+        for pair, n in alert_pairs.get(a["sid"], []):
+            left, _, right = pair.partition(" → ")
+            src, dst = left.rsplit(":", 1)[0], right.rsplit(":", 1)[0]
+            for ip, other in ((src, dst), (dst, src)):
+                e = risk_add(ip, sev_pts, f"Suricata sev{a.get('severity')} {name}", "", other)
+                if e:
+                    e["alerts"] += n
+    for fl in files:
+        if not fl.get("ioc"):
+            continue
+        ext_host = fl["receiver"] if is_local(fl["sender"]) else fl["sender"]
+        for ip in (fl["sender"], fl["receiver"]):
+            e = risk_add(ip, float(weights["file_ioc"]), f"файл с IOC {fl.get('filename') or fl.get('sha256') or fl.get('fuid')}",
+                         fl.get("sha256") or fl.get("filename", ""), ext_host)
+            if e:
+                e["files"] += 1
+    for b in beacons:
+        e = risk_add(b["src"], float(weights["beacon"]), f"маяк на {b['dst']}:{b['dp']}", "", b["dst"])
+        if e:
+            e["beacons"] += 1
+    for u in large_uploads:
+        e = risk_add(u["src"], float(weights["large_upload"]), f"крупная выгрузка на {u['dst']}", "", u["dst"])
+        if e:
+            e["uploads"] += 1
+    for c in cleartext_auth[:100]:
+        e = risk_add(c.get("src", ""), float(weights["cleartext_auth"]),
+                     f"учётные данные в открытом виде ({c.get('proto')}, {c.get('user') or '?'})", "", c.get("dst", ""))
+        if e:
+            e["cleartext"] += 1
+    for t in invalid_certs:
+        e = risk_add(t.get("src", ""), float(weights["tls_invalid"]),
+                     f"TLS с невалидным сертификатом {t.get('sni') or t.get('dst')}", t.get("sni", ""), t.get("dst", ""))
+        if e:
+            e["tls"] += 1
+    for d in suspicious_dns_list:
+        for ip in d.get("clients", []):
+            e = risk_add(ip, float(weights["dns_suspicious"]), f"подозрительный DNS {d['name']}", d["name"], "")
+            if e:
+                e["dns"] += 1
+
+    priority_hosts = []
+    for ip, e in host_risk.items():
+        level = "high" if e["score"] >= thr["critical"] else "medium" if e["score"] >= thr["suspicious"] else "low"
+        priority_hosts.append({
+            "ip": ip, "name": name_of(ip), "mac": host_info.get(ip, {}).get("mac", ""),
+            "score": round(e["score"], 1), "level": level,
+            "reasons": e["reasons"][:6], "indicators": sorted(e["indicators"])[:5], "external": sorted(e["external"])[:5],
+            "counts": {k: e[k] for k in ("ioc", "alerts", "files", "beacons", "uploads", "cleartext", "tls", "dns") if e[k]},
+        })
+    priority_hosts.sort(key=lambda x: -x["score"])
 
     totals = {
         "conns": conns_total, "bytes": bytes_total, "pkts": pkts_total,
@@ -588,6 +672,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
         "top_talkers": top_talkers,
         "top_external": top_external,
         "local_hosts": local_hosts,
+        "priority_hosts": priority_hosts,
         "services": sorted(({"service": k, "conns": v[0], "bytes": v[1]} for k, v in services.items()), key=lambda x: -x["conns"])[:40],
         "ports": sorted(({"proto": k[0], "port": k[1], "conns": v[0], "bytes": v[1]} for k, v in ports.items()), key=lambda x: -x["conns"])[:60],
         "connections": [row for _, _, row in sorted(top_conn, key=lambda x: -x[0])],
@@ -618,8 +703,8 @@ def _is_mcast(ip: str) -> bool:
         return True
 
 
-def _verdict_scored(rep: dict, cfg=None) -> dict:
-    """Скоринговый вердикт: сумма взвешенных находок + объяснение."""
+def _verdict_config(cfg=None) -> tuple[dict, dict, bool]:
+    """Веса, пороги и режим confidence для скорингового вердикта."""
     vcfg = (cfg.get("verdict") or {}) if isinstance(cfg, dict) else {}
     weights = {"ioc_hit": 40, "alert_sev_1": 40, "alert_sev_2": 15,
                "file_ioc": 25, "beacon": 15, "large_upload": 10,
@@ -628,6 +713,12 @@ def _verdict_scored(rep: dict, cfg=None) -> dict:
     thr = {"suspicious": 30, "critical": 80}
     thr.update(vcfg.get("thresholds") or {})
     scale = bool(vcfg.get("confidence_scale", True))
+    return weights, thr, scale
+
+
+def _verdict_scored(rep: dict, cfg=None) -> dict:
+    """Скоринговый вердикт: сумма взвешенных находок + объяснение."""
+    weights, thr, scale = _verdict_config(cfg)
 
     score = 0.0
     reasons: list[str] = []
@@ -641,24 +732,31 @@ def _verdict_scored(rep: dict, cfg=None) -> dict:
     for h in rep.get("ioc_hits") or []:
         conf = float(h.get("max_conf") or 0)
         pts = float(weights["ioc_hit"]) * (conf / 100.0 if scale else 1.0)
-        add(pts, f"IOC {h.get('value')} ({h.get('type')}, conf {conf:.0f})")
+        add(pts, f"IOC {h.get('value')} ({h.get('type_label') or h.get('type')}, conf {conf:.0f})")
     for a in rep.get("alerts") or []:
+        name = a.get("signature") or a.get("name") or f"sid {a.get('sid')}"
         add(float(weights.get(f"alert_sev_{a.get('severity')}", 0)),
-            f"Suricata sev{a.get('severity')} {a.get('name') or a.get('signature') or ''}".strip())
+            f"Suricata sev{a.get('severity')} {name}".strip())
     for f_ in rep.get("files") or []:
         if f_.get("ioc"):
-            add(float(weights["file_ioc"]), f"файл {f_.get('name') or f_.get('filename') or ''}".strip())
+            name = f_.get("filename") or f_.get("name") or f_.get("sha256") or f_.get("fuid") or ""
+            add(float(weights["file_ioc"]), f"файл {name}".strip())
     findings = rep.get("findings") or {}
     for b in findings.get("beacons") or []:
-        add(float(weights["beacon"]), f"маяк {b.get('host') or b.get('ip') or ''}".strip())
+        target = f"{b.get('dst')}:{b.get('dp')}" if b.get("dst") else ""
+        add(float(weights["beacon"]), f"маяк {b.get('src') or ''} → {target}".strip())
     for u in findings.get("large_uploads") or []:
-        add(float(weights["large_upload"]), f"большой upload {u.get('host') or ''}".strip())
+        target = f"{u.get('src') or ''} → {u.get('dst') or ''}".strip()
+        add(float(weights["large_upload"]), f"большой upload {target}")
     for c in findings.get("cleartext_auth") or []:
-        add(float(weights["cleartext_auth"]), f"cleartext-auth {c.get('host') or ''}".strip())
+        target = f"{c.get('src') or ''} → {c.get('dst') or ''}".strip(" →")
+        user = f" ({c.get('user')})" if c.get("user") else ""
+        add(float(weights["cleartext_auth"]), f"учётные данные в открытом виде{user} {target}".strip())
     for t in (rep.get("tls") or {}).get("invalid") or []:
-        add(float(weights["tls_invalid"]), f"TLS {t.get('host') or ''}".strip())
+        target = t.get("sni") or t.get("dst") or ""
+        add(float(weights["tls_invalid"]), f"TLS с невалидным сертификатом {target}".strip())
     for d in (rep.get("dns") or {}).get("suspicious") or []:
-        add(float(weights["dns_suspicious"]), f"DNS {d.get('q') or d.get('query') or ''}".strip())
+        add(float(weights["dns_suspicious"]), f"подозрительный DNS {d.get('name') or d.get('q') or ''}".strip())
 
     level = "critical" if score >= thr["critical"] else "suspicious" if score >= thr["suspicious"] else "clean"
     labels = {"critical": "Обнаружены признаки компрометации",
