@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import os
 import shutil
@@ -161,6 +162,22 @@ def run_suricata(cfg: Config, pcap: Path, outdir: Path, logfile: Path) -> bool:
     return True
 
 
+def rule_sources(cfg: Config) -> list[dict]:
+    """Дополнительные источники правил Suricata (URL), управляемые из веб-интерфейса."""
+    try:
+        data = json.loads((cfg.data / "rules-sources.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [s for s in data if isinstance(s, dict) and s.get("url")]
+
+
+def save_rule_sources(cfg: Config, sources: list[dict]) -> None:
+    p = cfg.data / "rules-sources.json"
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(sources, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(p)
+
+
 def update_rules(cfg: Config) -> tuple[bool, str]:
     su = shutil.which("suricata-update")
     if not su:
@@ -170,6 +187,8 @@ def update_rules(cfg: Config) -> tuple[bool, str]:
     out.mkdir(parents=True, exist_ok=True)
     data.mkdir(parents=True, exist_ok=True)
     cmd = [su, "--data-dir", str(data), "--output", str(out), "--no-test", "--no-reload"]
+    for s in rule_sources(cfg):
+        cmd += ["--url", s["url"]]
     if Path(cfg["suricata"]["config"]).exists():
         cmd += ["--suricata-conf", cfg["suricata"]["config"]]
     sb = suricata_bin(cfg)

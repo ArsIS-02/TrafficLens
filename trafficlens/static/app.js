@@ -69,6 +69,9 @@ window.TL = (function () {
         toast(tr("ioc_update_started")); pollStatus();
       } else if (a === "rules-update") {
         b.disabled = true; await api("/api/rules/update"); toast(tr("rules_update_started")); pollStatus();
+      } else if (a === "rulesrc-del") {
+        if (!await confirm(tr("del_src_confirm", { name: b.dataset.url }), { danger: true, ok: tr("delete") })) return;
+        await api("/api/rules/sources/delete", { body: { url: b.dataset.url } }); location.reload();
       } else if (a === "logout") {
         await api("/logout"); location.href = "/login";
       }
@@ -189,6 +192,17 @@ window.TL = (function () {
     });
   }
 
-  document.addEventListener("DOMContentLoaded", () => { initUpload(); autoRefresh(); autoJob(); initCustom(); initLookup(); });
+  function initRuleSources() {
+    const f = document.getElementById("rulesrc-form"); if (!f) return;
+    f.addEventListener("submit", async e => {
+      e.preventDefault();
+      try {
+        await api("/api/rules/sources", { body: { url: document.getElementById("rulesrc-url").value.trim(), note: document.getElementById("rulesrc-note").value.trim() } });
+        location.reload();
+      } catch (err) { alert(err.message, { title: tr("error_title") }); }
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => { initUpload(); autoRefresh(); autoJob(); initCustom(); initLookup(); initRuleSources(); });
   return { confirm, alert, toast, api };
 })();

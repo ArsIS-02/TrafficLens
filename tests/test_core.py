@@ -621,3 +621,49 @@ def test_pcapfilter_bpf(tmp_path):
     assert _count_pcap_packets(out) == 1
     with pytest.raises(ValueError):
         pcapfilter.filter_pcap(src, tmp_path / "bad.pcap", bpf="this is ((broken")
+
+
+def test_rule_sources(env, monkeypatch):
+    """Дополнительные источники правил: добавление/удаление через API, --url в suricata-update."""
+    from trafficlens import runner
+    from trafficlens.web import create_app
+
+    cfg, db = env
+    c = create_app(cfg, start_workers=False).test_client()
+    H = {"X-Requested-With": "TrafficLens"}
+
+    assert c.post("/api/rules/sources", json={"url": "ftp://x.rules"}, headers=H).status_code == 400
+    r = c.post("/api/rules/sources", json={"url": "https://rules.example/etpro.rules", "note": "ET Pro"}, headers=H)
+    assert r.json["ok"] and r.json["count"] == 1
+    assert c.post("/api/rules/sources", json={"url": "https://rules.example/etpro.rules"}, headers=H).status_code == 400  # дубликат
+    assert runner.rule_sources(cfg)[0]["note"] == "ET Pro"
+
+    calls = []
+    monkeypatch.setattr(runner.shutil, "which", lambda name: "/bin/true" if name == "suricata-update" else None)
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+
+        class R:
+            returncode, stdout, stderr = 0, "", ""
+        return R()
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    ok, _msg = runner.update_rules(cfg)
+    assert ok and "--url" in calls[0] and "https://rules.example/etpro.rules" in calls[0]
+
+    assert "rules.example/etpro.rules" in c.get("/iocs").text
+    assert c.post("/api/rules/sources/delete", json={"url": "https://rules.example/etpro.rules"}, headers=H).json["ok"]
+    assert runner.rule_sources(cfg) == []
+
+
+def test_virustotal_context_menu(env, tmp_path):
+    """Контекстное меню «Проверить на VirusTotal» встроено в отчёт (RU и EN)."""
+    cfg, db = env
+    jd = fx.make_job(tmp_path / "job")
+    rep = report.build(jd, ioc_store.IOCIndex(db), cfg, {"filename": "t.pcap"})
+    from trafficlens.render import render_report
+    html = render_report(json.loads(json.dumps(rep, default=list)), lang="en")
+    assert "virustotal.com/gui/search/" in html and "Check on VirusTotal" in html
+    html_ru = render_report(json.loads(json.dumps(rep, default=list)), lang="ru")
+    assert "Проверить на VirusTotal" in html_ru

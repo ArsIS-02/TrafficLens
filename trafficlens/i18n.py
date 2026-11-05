@@ -449,6 +449,17 @@ RU.update({
     "filter_label": "Фильтр при загрузке",
     "err_bpf": "{name}: фильтр не применён: {err}",
     "err_filter_window": "неверное окно времени: «с» должно быть раньше «по»",
+    "update_rules": "Обновить правила",
+    "rules_sources_title": "Дополнительные источники правил",
+    "rules_sources_hint": "URL наборов правил Suricata — suricata-update скачает их вместе с ET Open при обновлении. Например: ET Pro, abuse.ch SSLBL или свои .rules на внутреннем сервере.",
+    "rules_source_url_ph": "https://…/suricata.rules",
+    "rules_source_note_ph": "комментарий (необязательно)",
+    "add": "Добавить",
+    "err_bad_url": "URL должен начинаться с http:// или https://",
+    "err_src_exists": "такой источник уже добавлен",
+    "del_src_confirm": "Удалить источник {name}?",
+    "copy_label": "Копировать",
+    "vt_check": "Проверить на VirusTotal",
 })
 
 EN.update({
@@ -721,6 +732,17 @@ EN.update({
     "filter_label": "Upload filter",
     "err_bpf": "{name}: filter not applied: {err}",
     "err_filter_window": "invalid time window: \"from\" must be earlier than \"to\"",
+    "update_rules": "Update rules",
+    "rules_sources_title": "Additional rule sources",
+    "rules_sources_hint": "Suricata ruleset URLs — suricata-update fetches them together with ET Open. E.g. ET Pro, abuse.ch SSLBL or your own .rules hosted internally.",
+    "rules_source_url_ph": "https://…/suricata.rules",
+    "rules_source_note_ph": "note (optional)",
+    "add": "Add",
+    "err_bad_url": "URL must start with http:// or https://",
+    "err_src_exists": "source already added",
+    "del_src_confirm": "Delete source {name}?",
+    "copy_label": "Copy",
+    "vt_check": "Check on VirusTotal",
 })
 
 BUNDLES = {"ru": RU, "en": EN}

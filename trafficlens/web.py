@@ -258,7 +258,8 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
             {"id": "opencti", "name": "OpenCTI", "enabled": ic["opencti"]["enabled"], "note": ic["opencti"]["url"] or et("note_not_configured")},
         ]
         return tpl("iocs.html", page="iocs", sources=sources, feeds=db.feeds(), stats=ioc_store.stats(db), custom=custom,
-                   state=worker.state(), tools=runner.tool_versions(cfg), abusech_key=bool(ic["abusech"]["auth_key"]))
+                   state=worker.state(), tools=runner.tool_versions(cfg), abusech_key=bool(ic["abusech"]["auth_key"]),
+                   rule_sources=runner.rule_sources(cfg))
 
     # ------------------------------------------------------------- API
     @app.post("/api/upload")
@@ -357,6 +358,29 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
             return jsonify(error=et("err_rules_running")), 409
         import threading
         threading.Thread(target=worker.run_rules_update, args=(cfg,), daemon=True).start()
+        return jsonify(ok=True)
+
+    @app.post("/api/rules/sources")
+    @require_login
+    def api_rulesrc_add():
+        data = request.get_json(silent=True) or {}
+        url = (data.get("url") or "").strip()[:500]
+        note = (data.get("note") or "").strip()[:200]
+        if not re.match(r"^https?://\S+$", url):
+            return jsonify(error=et("err_bad_url")), 400
+        srcs = runner.rule_sources(cfg)
+        if any(s["url"] == url for s in srcs):
+            return jsonify(error=et("err_src_exists")), 400
+        srcs.append({"url": url, "note": note})
+        runner.save_rule_sources(cfg, srcs)
+        return jsonify(ok=True, count=len(srcs))
+
+    @app.post("/api/rules/sources/delete")
+    @require_login
+    def api_rulesrc_del():
+        data = request.get_json(silent=True) or {}
+        url = (data.get("url") or "").strip()
+        runner.save_rule_sources(cfg, [s for s in runner.rule_sources(cfg) if s["url"] != url])
         return jsonify(ok=True)
 
     @app.get("/api/status")
