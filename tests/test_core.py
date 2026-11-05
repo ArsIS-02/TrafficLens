@@ -97,7 +97,7 @@ def test_report_build(env, tmp_path):
 
     # английская версия: вся шаблонная обвязка переведена (строки данных остаются как в JSON)
     html_en = render_report(json.loads(json.dumps(rep, default=list)), lang="en")
-    for s in (">Summary<", "Priority hosts", "Signatures", "Network activity", "Anomalies", "Download HTML", "External addresses"):
+    for s in (">Summary<", "Priority hosts", "Signatures", "Network activity", "Anomalies", "Download HTML", "External addresses", "1 h 16 min"):
         assert s in html_en, s
     for s in ("Сводка", "Сигнатуры", "Сетевая активность", "Аномалии", "Приоритетные хосты", "Фильтр по таблице", "Сформировано"):
         assert s not in html_en, s
