@@ -270,3 +270,26 @@ def test_auth(env):
     assert c.get("/api/jobs").status_code == 401
     assert c.post("/login", data={"password": "s3cret"}).status_code == 302
     assert c.get("/").status_code == 200
+
+
+def test_pcap_sha256_computed_once_on_ingest(env, tmp_path, monkeypatch):
+    import hashlib
+    from trafficlens import worker
+
+    payload = b"\xd4\xc3\xb2\xa1" + b"\0" * 64
+    src = tmp_path / "ingest-sha.pcap"
+    src.write_bytes(payload)
+    expected = hashlib.sha256(payload).hexdigest()
+
+    jid = worker.enqueue_file(cfg, db, src, "ingest-sha.pcap", "upload", move=False)
+    job = db.job(jid)
+    assert job["summary"]["pcap_sha256"] == expected
+
+    def _must_not_recompute(path):
+        raise AssertionError("pcap_sha256 пересчитан в build_report")
+
+    monkeypatch.setattr(report, "sha256_file", _must_not_recompute)
+    jd = pipeline.job_dir(cfg, jid)
+    (jd / "zeek").mkdir(parents=True, exist_ok=True)
+    summary = pipeline.build_report(cfg, db, job)
+    assert summary["pcap_sha256"] == expected

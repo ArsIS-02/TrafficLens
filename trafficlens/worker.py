@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import logging
 import secrets
 import shutil
@@ -21,6 +22,18 @@ def new_job_id() -> str:
     return time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
 
 
+def _copy_sha256(fi, fo, chunk_size: int = 1 << 20) -> str:
+    """Копирует поток fo и за один проход возвращает SHA256 потока."""
+    h = hashlib.sha256()
+    while True:
+        chunk = fi.read(chunk_size)
+        if not chunk:
+            break
+        h.update(chunk)
+        fo.write(chunk)
+    return h.hexdigest()
+
+
 def enqueue_file(cfg: Config, db: DB, src: Path, filename: str, source: str, move: bool = True, status: str = "queued") -> str:
     """Положить PCAP в каталог задачи и поставить её в очередь. .gz распаковывается."""
     job_id = new_job_id()
@@ -29,17 +42,28 @@ def enqueue_file(cfg: Config, db: DB, src: Path, filename: str, source: str, mov
     name = Path(filename).name
     if name.lower().endswith(".gz"):
         dst = jd / ("input" + (Path(name[:-3]).suffix or ".pcap"))
-        with gzip.open(src, "rb") as fi, dst.open("wb") as fo:
-            shutil.copyfileobj(fi, fo, 1 << 20)
+        tmp = dst.with_suffix(dst.suffix + ".part")
+        try:
+            with gzip.open(src, "rb") as fi, tmp.open("wb") as fo:
+                pcap_sha256 = _copy_sha256(fi, fo)
+            tmp.replace(dst)
+        finally:
+            tmp.unlink(missing_ok=True)
         if move:
             src.unlink(missing_ok=True)
     else:
         dst = jd / ("input" + (Path(name).suffix.lower() or ".pcap"))
+        tmp = dst.with_suffix(dst.suffix + ".part")
+        try:
+            with src.open("rb") as fi, tmp.open("wb") as fo:
+                pcap_sha256 = _copy_sha256(fi, fo)
+            tmp.replace(dst)
+        finally:
+            tmp.unlink(missing_ok=True)
         if move:
-            shutil.move(str(src), dst)
-        else:
-            shutil.copy2(src, dst)
+            src.unlink(missing_ok=True)
     db.add_job(job_id, source, name, str(dst), dst.stat().st_size, status=status)
+    db.update_job(job_id, summary={"pcap_sha256": pcap_sha256})
     wake.set()
     return job_id
 
