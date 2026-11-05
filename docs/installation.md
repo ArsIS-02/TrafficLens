@@ -164,6 +164,7 @@ sudo ausearch -m avc -ts recent | grep -i -E 'trafficlens|container'
 cd ~/trafficlens && git pull
 podman build --format docker -t localhost/trafficlens:latest .
 systemctl --user restart trafficlens
+bash tools/smoke_server.sh
 # если используется захват:
 podman save localhost/trafficlens:latest | sudo podman load
 sudo systemctl restart trafficlens-capture
