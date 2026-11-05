@@ -82,6 +82,24 @@
     <div class="kpi"><div class="v">{{ t.http|int }} / {{ t.tls|int }}</div><div class="l">HTTP / TLS-сессий</div></div>
   </div>
 
+  {% if r.priority_hosts %}
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>Приоритетные хосты</h2><span class="faint">агрегация IOC, сигнатур и аномалий по локальным хостам — с кого начинать расследование</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Хост</th><th class="num" data-sort="num">Risk score</th><th>Основания</th><th>Индикаторы</th><th>Внешние адреса</th></tr></thead>
+      <tbody>
+      {% for h in r.priority_hosts[:10] %}<tr class="{{ 'hl' if h.level == 'high' }}">
+        <td>{{ host(h.ip, h.name) }}{% if h.mac %}<div class="faint mono">{{ h.mac }}</div>{% endif %}</td>
+        <td class="num" data-v="{{ h.score }}"><span class="badge {{ 'crit' if h.level == 'high' else 'warn' if h.level == 'medium' else 'info' }}">{{ h.score }}</span></td>
+        <td>{% for x in h.reasons %}<div>{{ x }}</div>{% endfor %}</td>
+        <td class="mono break">{{ h.indicators|join(', ') }}</td>
+        <td class="mono break">{{ h.external|join(', ') }}</td>
+      </tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+  {% endif %}
+
   {% if r.timeline.conns %}
   <div class="grid two">
     <section class="panel">

@@ -76,6 +76,16 @@ def test_report_build(env, tmp_path):
     assert ("ja3", fx.JA3) in hits
 
     assert rep["verdict"]["level"] == "critical"
+    assert any("203.0.113.66:8443" in x for x in rep["verdict"]["reasons"])
+    assert any("payload.exe" in x for x in rep["verdict"]["reasons"])
+
+    ph = rep["priority_hosts"]
+    assert ph and ph[0]["ip"] == fx.WS and ph[0]["level"] == "high"
+    assert ph[0]["counts"]["ioc"] >= 4 and ph[0]["counts"]["files"] == 1 and ph[0]["counts"]["alerts"] >= 1
+    assert "203.0.113.66" in ph[0]["external"] and any("payload.exe" in x for x in ph[0]["reasons"])
+    from trafficlens.render import render_report
+    html = render_report(rep)
+    assert "Приоритетные хосты" in html and fx.WS in html
     t = rep["totals"]
     assert t["files"] == 3 and t["alerts"] == 2 and t["alert_sigs"] == 1
 
@@ -111,6 +121,7 @@ def test_clean_report(env, tmp_path):
     (jd / "zeek" / "conn.log").write_text("".join(json.dumps(r) + "\n" for r in rows))
     rep = report.build(jd, ioc_store.IOCIndex(db), cfg)
     assert rep["verdict"]["level"] == "clean" and rep["totals"]["conns"] == 5
+    assert rep["priority_hosts"] == []
     assert rep["meta"]["suricata"]["status"] == "no_rules"
     assert "Нет правил Suricata" in rep["meta"]["suricata"]["warning"]
 
