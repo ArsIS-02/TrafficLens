@@ -17,6 +17,35 @@
       }).catch(() => {});
     }
   });
+
+  // контекстное меню по значениям (.copy): копировать / проверить на VirusTotal
+  let ctxMenu = null;
+  function closeCtxMenu() { if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; } }
+  document.addEventListener("contextmenu", e => {
+    const c = e.target.closest(".copy");
+    if (!c) return;
+    e.preventDefault();
+    closeCtxMenu();
+    const v = (c.dataset.copy || c.textContent).trim();
+    if (!v) return;
+    const I = window.TL_I18N || {};
+    ctxMenu = document.createElement("div");
+    ctxMenu.className = "ctx-menu";
+    const mk = (label, fn) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = label;
+      b.addEventListener("click", () => { closeCtxMenu(); fn(); });
+      ctxMenu.appendChild(b);
+    };
+    mk(I.copy_label || "Копировать", () => { if (navigator.clipboard) navigator.clipboard.writeText(v).catch(() => {}); });
+    mk(I.vt_check || "Проверить на VirusTotal", () => window.open("https://www.virustotal.com/gui/search/" + encodeURIComponent(v), "_blank", "noopener"));
+    document.body.appendChild(ctxMenu);
+    ctxMenu.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - ctxMenu.offsetWidth - 8)) + "px";
+    ctxMenu.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - ctxMenu.offsetHeight - 8)) + "px";
+  });
+  document.addEventListener("click", closeCtxMenu);
+  document.addEventListener("scroll", closeCtxMenu, true);
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeCtxMenu(); });
   function fromHash() {
     const h = (location.hash || "").slice(1);
     if (h && document.getElementById("tab-" + h)) showTab(h);

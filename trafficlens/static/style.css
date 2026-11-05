@@ -180,3 +180,6 @@ pre.log { background: var(--panel-2); border: 1px solid var(--line); border-radi
 .netgraph .gnode.drag { cursor: grabbing; }
 .netgraph .gnode.drag .node { stroke-width: 3; }
 @media print { .topbar, .tabs, .actions, .filter { display: none !important; } .tabpane { display: block !important; } .table-wrap { max-height: none; } }
+.ctx-menu { position: fixed; z-index: 130; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,.28); padding: 4px; display: flex; flex-direction: column; min-width: 210px; animation: pop .12s; }
+.ctx-menu button { background: none; border: 0; color: var(--text); text-align: left; padding: 8px 12px; border-radius: 7px; cursor: pointer; font: inherit; font-size: 13px; }
+.ctx-menu button:hover { background: var(--panel-2); color: var(--accent); }

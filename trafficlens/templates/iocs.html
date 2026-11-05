@@ -39,12 +39,28 @@
 
 <section class="panel">
   <div class="panel-head"><h2>{{ L.suricata_rules }}</h2><div class="spacer"></div>
-    <button class="btn" data-action="rules-update" {{ 'disabled' if 'rules' in state.busy }}>{{ L.updating if 'rules' in state.busy else L.update_etopen }}</button></div>
+    <button class="btn" data-action="rules-update" {{ 'disabled' if 'rules' in state.busy }}>{{ L.updating if 'rules' in state.busy else L.update_rules }}</button></div>
   <dl class="kv">
     <dt>{{ L.rules }}</dt><dd>{% if tools.rules %}<code>{{ tools.rules.path }}</code>{% else %}<span class="badge warn">{{ L.rules_none }}</span>{% endif %}</dd>
     {% if tools.rules %}<dt>{{ L.rules }}</dt><dd>{{ tools.rules.count|int }}</dd><dt>{{ L.updated }}</dt><dd>{{ tools.rules.mtime|ts }}</dd>{% endif %}
     {% if state.rules_update %}<dt>{{ L.status }}</dt><dd>{{ L.ok if state.rules_update.ok else L.error }}: <span class="muted">{{ L.get(state.rules_update.msg, state.rules_update.msg) }}</span></dd>{% endif %}
   </dl>
+</section>
+
+<section class="panel">
+  <div class="panel-head"><h2>{{ L.rules_sources_title }}</h2></div>
+  <div class="faint" style="margin-bottom:10px">{{ L.rules_sources_hint }}</div>
+  {% for s in rule_sources %}
+  <div class="ioc-src">
+    <div><strong class="mono break">{{ s.url }}</strong>{% if s.note %}<div class="faint">{{ s.note }}</div>{% endif %}</div>
+    <div><button class="btn small danger" data-action="rulesrc-del" data-url="{{ s.url }}">{{ L.delete }}</button></div>
+  </div>
+  {% else %}<div class="muted" style="margin-bottom:8px">{{ L.empty }}</div>{% endfor %}
+  <form id="rulesrc-form" style="display:flex;gap:8px;flex-wrap:wrap">
+    <input type="url" id="rulesrc-url" placeholder="{{ L.rules_source_url_ph }}" style="flex:2;min-width:240px" required>
+    <input type="text" id="rulesrc-note" placeholder="{{ L.rules_source_note_ph }}" style="flex:1;min-width:120px">
+    <button class="btn primary" type="submit">{{ L.add }}</button>
+  </form>
 </section>
 </div>
 </div>
