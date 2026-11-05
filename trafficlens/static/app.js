@@ -99,6 +99,12 @@ window.TL = (function () {
     function send(files) {
       if (!files || !files.length) return;
       const fd = new FormData(); Array.from(files).forEach(f => fd.append("file", f));
+      const bpf = document.getElementById("f-bpf")?.value.trim();
+      if (bpf) fd.append("bpf", bpf);
+      for (const [id, key] of [["f-from", "t_from"], ["f-to", "t_to"]]) {
+        const v = document.getElementById(id)?.value;
+        if (v) { const t = new Date(v).getTime() / 1000; if (isFinite(t)) fd.append(key, String(t)); }
+      }
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/upload"); xhr.setRequestHeader("X-Requested-With", "TrafficLens");
       bar.style.display = "block"; fill.style.width = "0";
@@ -121,7 +127,7 @@ window.TL = (function () {
     const tb = document.getElementById("jobs-body"); if (!tb || refreshing) return;
     refreshing = true;
     try {
-      const r = await fetch("/", { headers: { "X-Partial": "1" } });
+      const r = await fetch("/" + location.search, { headers: { "X-Partial": "1" } });
       const html = await r.text();
       const doc = new DOMParser().parseFromString(html, "text/html");
       const nb = doc.getElementById("jobs-body"); if (nb) tb.innerHTML = nb.innerHTML;

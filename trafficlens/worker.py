@@ -34,36 +34,60 @@ def _copy_sha256(fi, fo, chunk_size: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
-def enqueue_file(cfg: Config, db: DB, src: Path, filename: str, source: str, move: bool = True, status: str = "queued") -> str:
-    """Положить PCAP в каталог задачи и поставить её в очередь. .gz распаковывается."""
+def enqueue_file(cfg: Config, db: DB, src: Path, filename: str, source: str, move: bool = True, status: str = "queued",
+                 bpf: str = "", ts_from: float | None = None, ts_to: float | None = None) -> str:
+    """Положить PCAP в каталог задачи и поставить её в очередь. .gz распаковывается.
+
+    Если задан BPF-фильтр и/или окно времени, PCAP обрезается до анализа —
+    в сводке задачи сохраняется описание фильтра. ValueError (невалидный BPF
+    или формат) пробрасывается вызывающему, каталог задачи при этом убирается.
+    """
+    from . import pcapfilter
+
     job_id = new_job_id()
     jd = pipeline.job_dir(cfg, job_id)
     jd.mkdir(parents=True)
     name = Path(filename).name
-    if name.lower().endswith(".gz"):
-        dst = jd / ("input" + (Path(name[:-3]).suffix or ".pcap"))
-        tmp = dst.with_suffix(dst.suffix + ".part")
-        try:
-            with gzip.open(src, "rb") as fi, tmp.open("wb") as fo:
-                pcap_sha256 = _copy_sha256(fi, fo)
-            tmp.replace(dst)
-        finally:
-            tmp.unlink(missing_ok=True)
-        if move:
-            src.unlink(missing_ok=True)
-    else:
-        dst = jd / ("input" + (Path(name).suffix.lower() or ".pcap"))
-        tmp = dst.with_suffix(dst.suffix + ".part")
-        try:
-            with src.open("rb") as fi, tmp.open("wb") as fo:
-                pcap_sha256 = _copy_sha256(fi, fo)
-            tmp.replace(dst)
-        finally:
-            tmp.unlink(missing_ok=True)
-        if move:
-            src.unlink(missing_ok=True)
+    try:
+        if name.lower().endswith(".gz"):
+            dst = jd / ("input" + (Path(name[:-3]).suffix or ".pcap"))
+            tmp = dst.with_suffix(dst.suffix + ".part")
+            try:
+                with gzip.open(src, "rb") as fi, tmp.open("wb") as fo:
+                    pcap_sha256 = _copy_sha256(fi, fo)
+                tmp.replace(dst)
+            finally:
+                tmp.unlink(missing_ok=True)
+            if move:
+                src.unlink(missing_ok=True)
+        else:
+            dst = jd / ("input" + (Path(name).suffix.lower() or ".pcap"))
+            tmp = dst.with_suffix(dst.suffix + ".part")
+            try:
+                with src.open("rb") as fi, tmp.open("wb") as fo:
+                    pcap_sha256 = _copy_sha256(fi, fo)
+                tmp.replace(dst)
+            finally:
+                tmp.unlink(missing_ok=True)
+            if move:
+                src.unlink(missing_ok=True)
+        summary = {"pcap_sha256": pcap_sha256}
+        if bpf or ts_from is not None or ts_to is not None:
+            filtered = dst.with_suffix(dst.suffix + ".filtered")
+            try:
+                summary["filter"] = pcapfilter.filter_pcap(dst, filtered, bpf=bpf, ts_from=ts_from, ts_to=ts_to)
+            finally:
+                filtered.replace(dst) if filtered.exists() else None
+            with dst.open("rb") as fi:  # хэш — от того файла, что реально пойдёт в анализ
+                h = hashlib.sha256()
+                for chunk in iter(lambda: fi.read(1 << 20), b""):
+                    h.update(chunk)
+                summary["pcap_sha256"] = h.hexdigest()
+    except Exception:
+        shutil.rmtree(jd, ignore_errors=True)
+        raise
     db.add_job(job_id, source, name, str(dst), dst.stat().st_size, status=status)
-    db.update_job(job_id, summary={"pcap_sha256": pcap_sha256})
+    db.update_job(job_id, summary=summary)
     wake.set()
     return job_id
 

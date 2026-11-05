@@ -34,6 +34,9 @@ def build_report(cfg: Config, db: DB, job: dict) -> dict:
     meta = {"job_id": job["id"], "filename": job["filename"], "source": job["source"], "size": job["size"],
             "pcap_sha256": job.get("summary", {}).get("pcap_sha256") or (report_mod.sha256_file(pcap) if pcap.exists() else ""),
             "tools": runner.tool_versions(cfg)}
+    flt = (job.get("summary") or {}).get("filter")
+    if flt:
+        meta["filter"] = flt
     rep = report_mod.build(jd, index, cfg, meta)
     _write(jd / "report.json", json.dumps(rep, ensure_ascii=False, default=_json_default))
     _write(jd / "report.html", render_report(rep, embedded=False))
@@ -86,6 +89,46 @@ def rematch(cfg: Config, db: DB, job_id: str) -> dict:
     s = build_report(cfg, db, job)
     db.update_job(job_id, summary=s)
     return s
+
+
+def _report_haystack(rep: dict) -> str:
+    """Текст для поиска по готовому отчёту: хосты, IOC, имена файлов, DNS-имена."""
+    parts = [rep.get("meta", {}).get("filename", "")]
+    for h in rep.get("local_hosts", []):
+        parts += [h.get("ip", ""), h.get("name", ""), h.get("mac", "")]
+    for e in rep.get("top_external", []):
+        parts += [e.get("ip", ""), e.get("name", "")]
+    for h in rep.get("ioc_hits", []):
+        parts.append(h.get("value", ""))
+        parts += h.get("observed", [])
+    for f in rep.get("files", []):
+        parts += [f.get("filename", ""), f.get("sha256", ""), f.get("md5", "")]
+    for d in rep.get("dns", {}).get("top", []):
+        parts.append(d.get("name", ""))
+    return "\n".join(p for p in parts if p).lower()
+
+
+def search_jobs(cfg: Config, db: DB, q: str, limit: int = 200) -> list[dict]:
+    """Поиск задач: подстрока в имени файла, а для готовых — по содержимому отчёта (хосты, IOC, файлы, DNS)."""
+    q = (q or "").strip().lower()
+    jobs = db.jobs(limit=limit)
+    if not q:
+        return jobs
+    out = []
+    for j in jobs:
+        if q in (j.get("filename") or "").lower():
+            out.append(j)
+            continue
+        if j["status"] != "done":
+            continue
+        rp = job_dir(cfg, j["id"]) / "report.json"
+        try:
+            rep = json.loads(rp.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        if q in _report_haystack(rep):
+            out.append(j)
+    return out
 
 
 def delete(cfg: Config, db: DB, job_id: str) -> None:

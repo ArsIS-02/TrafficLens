@@ -103,6 +103,19 @@
   </section>
   {% endif %}
 
+  {% set mitre = mitre_summary(r) %}
+  {% if mitre %}
+  <section class="panel">
+    <div class="panel-head"><h2>MITRE ATT&amp;CK</h2><span class="faint">{{ L.mitre_hint }}</span></div>
+    <div style="display:flex;flex-direction:column;gap:10px;padding:0 20px 16px">
+      {% for mt in mitre %}<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        <a class="badge warn" href="https://attack.mitre.org/tactics/{{ mt.id }}/" target="_blank" rel="noopener" style="text-decoration:none">{{ mt.id }} {{ mt.name }}</a>
+        {% for te in mt.techs %}<a class="badge accent" href="https://attack.mitre.org/techniques/{{ te.id.replace('.', '/') }}/" target="_blank" rel="noopener" title="{{ te.name }}" style="text-decoration:none">{{ te.id }}&nbsp;×{{ te.n }}</a>{% endfor %}
+      </div>{% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   {% if r.timeline.conns %}
   <div class="grid two">
     <section class="panel">
@@ -171,6 +184,10 @@
         {% elif sm.warning %}<span class="badge warn">{{ L.suri_not_run }}</span> {{ sm.warning }}
         {% else %}{{ L.suri_never }}{% endif %}</dd>
       <dt>{{ L.ioc_db }}</dt><dd>{{ r.meta.ioc_count|int }} {{ L.ioc_db_at }}</dd>
+      {% if r.meta.filter %}<dt>{{ L.filter_label }}</dt><dd>
+        {% if r.meta.filter.bpf %}<span class="mono">{{ r.meta.filter.bpf }}</span>{% endif %}
+        {% if r.meta.filter['from'] or r.meta.filter.to %}{{ r.meta.filter['from']|ts('%d.%m.%Y %H:%M:%S') }} – {{ r.meta.filter.to|ts('%d.%m.%Y %H:%M:%S') }}{% endif %}
+      </dd>{% endif %}
       {% if r.meta.job_id %}<dt>{{ L.job_task }}</dt><dd>{{ r.meta.job_id }}</dd>{% endif %}
     </dl>
   </section>
@@ -214,15 +231,17 @@
   <section class="panel flush">
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.alerts_title }}</h2><div class="spacer"></div>{{ filter('t-alerts') }}</div>
     <div class="table-wrap"><table id="t-alerts">
-      <thead><tr><th data-sort="num">{{ L.col_severity }}</th><th data-sort="text">{{ L.col_signature }}</th><th data-sort="text">{{ L.col_category }}</th><th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_directions }}</th><th>{{ L.col_period }}</th></tr></thead>
+      <thead><tr><th data-sort="num">{{ L.col_severity }}</th><th data-sort="text">{{ L.col_signature }}</th><th data-sort="text">{{ L.col_category }}</th><th>MITRE</th><th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_directions }}</th><th>{{ L.col_period }}</th></tr></thead>
       <tbody>
       {% for a in r.alerts %}<tr class="{{ 'hl' if a.severity == 1 }}">
         <td data-v="{{ a.severity }}"><span class="badge {{ 'crit' if a.severity == 1 else 'warn' if a.severity == 2 else '' }}">{{ a.severity|lsev(a.sev_label) }}</span></td>
         <td>{{ a.signature }}<div class="faint">sid {{ a.sid }}</div></td>
-        <td>{{ a.category }}</td><td class="num">{{ a.count }}</td>
+        <td>{{ a.category }}</td>
+        <td class="nowrap">{% for ta, tech in mitre_alert(a.category) %}<span class="badge accent" title="{{ mitre_tactics.get(ta, ta) }} · {{ mitre_techniques.get(tech, tech) }}">{{ tech }}</span> {% endfor %}</td>
+        <td class="num">{{ a.count }}</td>
         <td class="mono">{% for p in a.pairs %}<div>{{ p }}</div>{% endfor %}</td>
         <td class="nowrap">{{ a.first|ts('%d.%m %H:%M:%S') }}<div class="faint">{{ a.last|ts('%d.%m %H:%M:%S') }}</div></td>
-      </tr>{% else %}{% set sm = r.meta.suricata or {} %}{{ empty(6, L.no_alerts if sm.status == 'ok' else (L.get('suri_warn_' ~ (sm.status or ''), '') or sm.warning or L.suri_not_ran)) }}{% endfor %}
+      </tr>{% else %}{% set sm = r.meta.suricata or {} %}{{ empty(7, L.no_alerts if sm.status == 'ok' else (L.get('suri_warn_' ~ (sm.status or ''), '') or sm.warning or L.suri_not_ran)) }}{% endfor %}
       </tbody>
     </table></div>
   </section>
