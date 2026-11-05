@@ -323,3 +323,54 @@ def test_auth_hash_headers_redaction_and_ratelimit(env, tmp_path):
     assert "/" not in mine["pcap_path"]
     one = c.get(f"/api/jobs/{jid}").get_json()
     assert "/" not in one["pcap_path"]
+
+
+def test_retention_days_quota_dryrun(env, tmp_path):
+    import time as _time
+    from trafficlens import worker as worker_mod
+
+    cfg, db = env
+    cfg["retention"] = {"days": 7, "max_total_gb": 0, "keep_verdicts": ["critical"], "dry_run": False}
+
+    def mk(name, age_days, verdict):
+        src = tmp_path / name
+        src.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 32)
+        jid = worker_mod.enqueue_file(cfg, db, src, name, "upload", move=False)
+        created = _time.time() - age_days * 86400
+        with db.conn() as c:
+            c.execute("UPDATE jobs SET created=? WHERE id=?", (created, jid))
+        db.update_job(jid, status="done", summary={"verdict": {"level": verdict}})
+        return jid
+
+    old_clean = mk("a.pcap", 10, "clean")
+    old_crit = mk("b.pcap", 10, "critical")
+    fresh = mk("c.pcap", 1, "clean")
+
+    sched = worker_mod.Scheduler(cfg, db)
+    sched.retention()
+    ids = {j["id"] for j in db.jobs()}
+    assert old_clean not in ids
+    assert old_crit in ids and fresh in ids
+
+    cfg["retention"]["dry_run"] = True
+    x = mk("x.pcap", 30, "clean")
+    sched.retention()
+    assert x in {j["id"] for j in db.jobs()}
+    cfg["retention"]["dry_run"] = False
+
+    big = []
+    for name, age in (("d.pcap", 3), ("e.pcap", 2), ("f.pcap", 1)):
+        src = tmp_path / name
+        src.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 100_000)
+        jid = worker_mod.enqueue_file(cfg, db, src, name, "upload", move=False)
+        with db.conn() as c:
+            c.execute("UPDATE jobs SET created=? WHERE id=?", (_time.time() - age * 86400, jid))
+        verdict = "critical" if name == "f.pcap" else "clean"
+        db.update_job(jid, status="done", summary={"verdict": {"level": verdict}})
+        big.append(jid)
+    d, e, f = big
+    cfg["retention"] = {"days": 0, "max_total_gb": 250_000 / 1024**3,
+                        "keep_verdicts": ["critical"], "dry_run": False}
+    sched.retention()
+    ids = {j["id"] for j in db.jobs()}
+    assert d not in ids and e in ids and f in ids

@@ -67,7 +67,14 @@ DEFAULTS: dict = {
     },
     "capture": {
         "watch_spool": True,     # подхватывать PCAP, которые пишет capture-контейнер
-        "retention_days": 7,     # сколько хранить задачи из живого захвата
+        "retention_days": 7,     # legacy: используется, если retention.days не задан
+    },
+    # Хранение задач (upload + capture).
+    "retention": {
+        "days": None,            # None — брать capture.retention_days; 0 — не удалять по возрасту
+        "max_total_gb": 0,       # квота на каталог задач; 0 — без квоты
+        "keep_verdicts": ["critical"],
+        "dry_run": False,
     },
     "heuristics": {
         "beacon_min_conns": 12,
