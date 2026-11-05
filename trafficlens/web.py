@@ -231,13 +231,13 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         custom = {p.stem: p.read_text(encoding="utf-8", errors="replace") for p in sorted(cfg.custom_ioc_dir.glob("*.txt"))}
         ic = cfg["iocs"]
         sources = [
-            {"id": "custom", "name": "Свои списки", "enabled": True, "note": f"{cfg.custom_ioc_dir}/*.txt"},
-            {"id": "abusech-urlhaus", "name": "abuse.ch URLhaus", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["urlhaus"], "note": "вредоносные URL"},
-            {"id": "abusech-threatfox", "name": "abuse.ch ThreatFox", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["threatfox"], "note": "IP:порт, домены, URL, хэши"},
-            {"id": "abusech-feodo", "name": "abuse.ch Feodo Tracker", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["feodo"], "note": "C2 ботнетов"},
-            {"id": "abusech-malwarebazaar", "name": "abuse.ch MalwareBazaar", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["malwarebazaar"], "note": "хэши образцов за 48 ч"},
-            {"id": "misp", "name": "MISP", "enabled": ic["misp"]["enabled"], "note": ic["misp"]["url"] or "не настроен"},
-            {"id": "opencti", "name": "OpenCTI", "enabled": ic["opencti"]["enabled"], "note": ic["opencti"]["url"] or "не настроен"},
+            {"id": "custom", "name": et("src_custom"), "enabled": True, "note": f"{cfg.custom_ioc_dir}/*.txt"},
+            {"id": "abusech-urlhaus", "name": "abuse.ch URLhaus", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["urlhaus"], "note": et("note_urlhaus")},
+            {"id": "abusech-threatfox", "name": "abuse.ch ThreatFox", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["threatfox"], "note": et("note_threatfox")},
+            {"id": "abusech-feodo", "name": "abuse.ch Feodo Tracker", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["feodo"], "note": et("note_feodo")},
+            {"id": "abusech-malwarebazaar", "name": "abuse.ch MalwareBazaar", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["malwarebazaar"], "note": et("note_bazaar")},
+            {"id": "misp", "name": "MISP", "enabled": ic["misp"]["enabled"], "note": ic["misp"]["url"] or et("note_not_configured")},
+            {"id": "opencti", "name": "OpenCTI", "enabled": ic["opencti"]["enabled"], "note": ic["opencti"]["url"] or et("note_not_configured")},
         ]
         return tpl("iocs.html", page="iocs", sources=sources, feeds=db.feeds(), stats=ioc_store.stats(db), custom=custom,
                    state=worker.state(), tools=runner.tool_versions(cfg), abusech_key=bool(ic["abusech"]["auth_key"]))
@@ -253,14 +253,14 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         for f in files:
             name = Path(f.filename or "capture.pcap").name
             if not name.lower().endswith(ALLOWED_EXT):
-                errors.append(f"{name}: поддерживаются .pcap, .pcapng, .cap (можно .gz)")
+                errors.append(et("err_bad_ext").format(name=name))
                 continue
             fd, tmp = tempfile.mkstemp(dir=cfg.data, prefix=".upload-")
             os.close(fd)
             f.save(tmp)
             if not _looks_like_pcap(Path(tmp), name):
                 os.unlink(tmp)
-                errors.append(f"{name}: это не похоже на PCAP/PCAPNG")
+                errors.append(et("err_not_pcap").format(name=name))
                 continue
             ids.append(worker.enqueue_file(cfg, db, Path(tmp), name, "upload", move=True))
         return jsonify(ok=bool(ids), jobs=ids, errors=errors), (200 if ids else 400)

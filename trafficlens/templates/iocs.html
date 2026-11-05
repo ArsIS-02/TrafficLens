@@ -19,7 +19,7 @@
       {% elif not f %}<span class="badge">{{ L.never_loaded }}</span>
       {% elif f.ok %}<span class="badge ok">{{ L.ok }}</span>{% else %}<span class="badge crit">{{ L.error }}</span>{% endif %}
       <div class="faint">{{ s.note }}</div>
-      {% if f %}<div class="muted" style="font-size:12px">{{ f.updated|ts('%d.%m %H:%M') }} · {{ f.message }}</div>{% endif %}
+      {% if f %}<div class="muted" style="font-size:12px">{{ f.updated|ts('%d.%m %H:%M') }} · {{ f.message|lfeed }}</div>{% endif %}
       {% if c %}<div style="margin-top:4px">{% for t, n in c|dictsort %}<span class="badge accent" style="margin-right:4px">{{ t }}: {{ n|int }}</span>{% endfor %}</div>{% endif %}
     </div>
     <div>{% if s.enabled %}<button class="btn small" data-action="ioc-update" data-source="{{ s.id }}" {{ 'disabled' if 'iocs' in state.busy }}>{{ L.update_btn }}</button>{% endif %}</div>
@@ -43,7 +43,7 @@
   <dl class="kv">
     <dt>{{ L.rules }}</dt><dd>{% if tools.rules %}<code>{{ tools.rules.path }}</code>{% else %}<span class="badge warn">{{ L.rules_none }}</span>{% endif %}</dd>
     {% if tools.rules %}<dt>{{ L.rules }}</dt><dd>{{ tools.rules.count|int }}</dd><dt>{{ L.updated }}</dt><dd>{{ tools.rules.mtime|ts }}</dd>{% endif %}
-    {% if state.rules_update %}<dt>{{ L.status }}</dt><dd>{{ L.ok if state.rules_update.ok else L.error }}: <span class="muted">{{ state.rules_update.msg }}</span></dd>{% endif %}
+    {% if state.rules_update %}<dt>{{ L.status }}</dt><dd>{{ L.ok if state.rules_update.ok else L.error }}: <span class="muted">{{ L.get(state.rules_update.msg, state.rules_update.msg) }}</span></dd>{% endif %}
   </dl>
 </section>
 </div>

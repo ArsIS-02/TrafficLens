@@ -138,7 +138,7 @@ window.TL = (function () {
     setInterval(async () => {
       try { const j = await api("/api/jobs/" + p.dataset.jobLive, { method: "GET" });
         if (j.status === "done" || j.status === "error") location.reload();
-        const st = document.getElementById("job-stage"); if (st) st.textContent = j.stage || j.status;
+        const st = document.getElementById("job-stage"); if (st) st.textContent = (j.stage && (I["stage_" + j.stage] || j.stage)) || j.status;
       } catch (e) { }
     }, 3000);
   }
@@ -154,7 +154,7 @@ window.TL = (function () {
       let name = sel.value === "__new" ? document.getElementById("custom-new").value.trim() : sel.value;
       try {
         const d = await api("/api/iocs/custom", { body: { name, text: ta.value } });
-        if (d.errors.length) await alert(`${tr("saved_n", { n: d.count })}.\n\n${tr("not_recognized")}\n` + d.errors.join("\n"), { title: tr("list_saved") });
+        if (d.errors.length) await alert(`${tr("saved_n", { n: d.count })}.\n\n${tr("not_recognized")}\n` + d.errors.map(x => typeof x === "string" ? x : tr(x.k || "parse_line", x)).join("\n"), { title: tr("list_saved") });
         else toast(tr("saved_n", { n: d.count }));
         location.reload();
       } catch (err) { alert(err.message, { title: tr("error_title") }); }

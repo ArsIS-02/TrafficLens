@@ -1,6 +1,7 @@
 """Отрисовка HTML: фильтры Jinja и автономный отчёт."""
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -12,14 +13,15 @@ PKG = Path(__file__).parent
 STATIC = PKG / "static"
 
 
-def fmt_bytes(n) -> str:
+def fmt_bytes(n, lang: str = "ru") -> str:
     try:
         n = float(n or 0)
     except (TypeError, ValueError):
         return "—"
-    for unit in ("Б", "КБ", "МБ", "ГБ", "ТБ"):
-        if abs(n) < 1024 or unit == "ТБ":
-            return f"{n:.0f} {unit}" if unit == "Б" else f"{n:.1f} {unit}"
+    units = ("Б", "КБ", "МБ", "ГБ", "ТБ") if lang != "en" else ("B", "KB", "MB", "GB", "TB")
+    for unit in units:
+        if abs(n) < 1024 or unit == units[-1]:
+            return f"{n:.0f} {unit}" if unit == units[0] else f"{n:.1f} {unit}"
         n /= 1024
     return str(n)
 
@@ -78,12 +80,55 @@ def fmt_bucket(sec: int, lang: str = "ru") -> str:
     return f"{sec // 86400} д"
 
 
+def _fmt_l(L: dict, key: str, params: dict) -> str:
+    """L[key].format(**params) с защитой от неизвестных ключей и параметров."""
+    try:
+        return L.get(key, key).format(**params)
+    except (KeyError, IndexError, ValueError):
+        return key
+
+
+def _lreason(ctx, v) -> str:
+    """Причина из report.json: dict {k, ...} -> локализованная строка; str (старые отчёты) -> как есть."""
+    if not isinstance(v, dict):
+        return str(v)
+    L = ctx.get("L", {})
+    params = {pk: pv for pk, pv in v.items() if pk not in ("k", "pts")}
+    if "t" in params:  # тип IOC локализуем отдельно
+        params["t"] = L.get("ioc_type_" + str(params["t"]), params["t"])
+    text = _fmt_l(L, str(v.get("k", "")), params)
+    return f"+{v['pts']} {text}" if v.get("pts") is not None else text
+
+
+def _lfeed(ctx, v) -> str:
+    """Сообщение источника IOC: JSON-токен -> локализованная строка; иначе как есть."""
+    if isinstance(v, str) and v.startswith("{"):
+        try:
+            d = json.loads(v)
+        except ValueError:
+            return v
+        if isinstance(d, dict) and "k" in d:
+            L = ctx.get("L", {})
+            params = {pk: pv for pk, pv in d.items() if pk != "k"}
+            if isinstance(params.get("hint"), str) and params["hint"].startswith("feed_err_"):
+                params["hint"] = (" " + L.get(params["hint"], "")) if params["hint"] else ""
+            return _fmt_l(L, str(d["k"]), params)
+    return str(v)
+
+
 def env() -> Environment:
     e = Environment(loader=FileSystemLoader(str(PKG / "templates")), autoescape=select_autoescape(["html"]),
                     trim_blocks=True, lstrip_blocks=True)
-    e.filters.update(bytes=fmt_bytes, ts=fmt_ts, int=fmt_int)
+    e.filters.update(ts=fmt_ts, int=fmt_int)
+    e.filters["bytes"] = pass_context(lambda ctx, v: fmt_bytes(v, ctx.get("lang", "ru")))
     e.filters["dur"] = pass_context(lambda ctx, v: fmt_dur(v, ctx.get("lang", "ru")))
     e.filters["bucket"] = pass_context(lambda ctx, v: fmt_bucket(v, ctx.get("lang", "ru")))
+    e.filters["lctx"] = pass_context(lambda ctx, v: ctx.get("L", {}).get("ctx_" + str(v), str(v)))
+    e.filters["ldir"] = pass_context(lambda ctx, v: ctx.get("L", {}).get("dir_" + str(v), str(v)))
+    e.filters["lsev"] = pass_context(lambda ctx, v, fallback=None: ctx.get("L", {}).get("sev_" + str(v), fallback or str(v)))
+    e.filters["lioc"] = pass_context(lambda ctx, v, fallback=None: ctx.get("L", {}).get("ioc_type_" + str(v), fallback or str(v)))
+    e.filters["lreason"] = pass_context(_lreason)
+    e.filters["lfeed"] = pass_context(_lfeed)
     e.globals["inline_css"] = lambda: (STATIC / "style.css").read_text(encoding="utf-8")
     e.globals["inline_js"] = lambda name: (STATIC / name).read_text(encoding="utf-8")
     e.globals["max"] = max

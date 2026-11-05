@@ -191,15 +191,15 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
             nx[q] += 1
             if len(nx_clients[q]) < 20:
                 nx_clients[q].add(src)
-        hits.add(index.domain(q), "DNS-запрос", ts, src, dst, detail=qt)
+        hits.add(index.domain(q), "ctx_dns_query", ts, src, dst, detail=qt)
         for a in r.get("answers") or []:
             a = str(a).strip(".").lower()
             try:
                 ipaddress.ip_address(a)
                 ip_names[a][q] += 1
-                hits.add(index.ip(a), "DNS-ответ", ts, src, a, detail=q)
+                hits.add(index.ip(a), "ctx_dns_answer", ts, src, a, detail=q)
             except ValueError:
-                hits.add(index.domain(a), "DNS-ответ (CNAME)", ts, src, dst, detail=q)
+                hits.add(index.domain(a), "ctx_dns_cname", ts, src, dst, detail=q)
         # эвристики имени
         if q.endswith((".arpa", ".local", ".lan", ".home", ".internal")) or q.startswith("_"):
             continue
@@ -211,16 +211,16 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
         longest = max(labels, key=len) if labels else ""
         reason = None
         if len(q) > 100:
-            reason = f"очень длинное имя ({len(q)} симв.) — возможен DNS-туннель"
+            reason = {"k": "dns_long", "n": len(q)}
         elif len(longest) >= int(heur["dns_min_label"]) and entropy(longest) >= float(heur["dns_entropy"]):
-            reason = f"высокая энтропия метки «{longest[:30]}» ({entropy(longest):.2f}) — возможен DGA"
+            reason = {"k": "dns_entropy", "label": longest[:30], "e": f"{entropy(longest):.2f}"}
         if reason:
             s = suspicious_dns.setdefault(q, {"name": q, "reason": reason, "count": 0, "clients": set()})
             s["count"] += 1
             s["clients"].add(src)
     for base, n in txt_by_base.items():
         if n >= 20:
-            suspicious_dns[f"*.{base}"] = {"name": f"*.{base}", "reason": f"{n} TXT-запросов — возможен DNS-туннель", "count": n, "clients": set()}
+            suspicious_dns[f"*.{base}"] = {"name": f"*.{base}", "reason": {"k": "dns_txt", "n": n}, "count": n, "clients": set()}
 
     # ======================= DHCP
     for r in read_log(zdir / "dhcp.log"):
@@ -251,9 +251,9 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
         if r.get("user_agent"):
             uas[r["user_agent"]] += 1
         m_host = index.domain(host.split(":")[0]) or index.ip(host.split(":")[0])
-        hits.add(m_host, "HTTP Host", ts, src, dst, port, detail=r.get("method", ""))
+        hits.add(m_host, "ctx_http_host", ts, src, dst, port, detail=r.get("method", ""))
         m_url = index.url(url_n)
-        hits.add(m_url, "HTTP URL", ts, src, dst, port, detail=r.get("method", ""))
+        hits.add(m_url, "ctx_http_url", ts, src, dst, port, detail=r.get("method", ""))
         for f in (r.get("resp_fuids") or []) + (r.get("orig_fuids") or []):
             fuid_url[f] = "http://" + hostport + uri
             last = uri.split("?", 1)[0].rstrip("/").rsplit("/", 1)[-1]
@@ -294,7 +294,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
         tls_versions[ver] += 1
         if sni:
             ip_names[dst][sni] += 1
-            hits.add(index.domain(sni), "TLS SNI", ts, src, dst, r.get("id.resp_p"))
+            hits.add(index.domain(sni), "ctx_tls_sni", ts, src, dst, r.get("id.resp_p"))
         key = sni or f"[{dst}]"
         s = sni_stats.setdefault(key, {"sni": key, "count": 0, "dst": set(), "versions": Counter(), "validation": Counter(), "ja3": set(), "ja4": set()})
         s["count"] += 1
@@ -330,11 +330,11 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
             ja4 = t.get("ja4") if isinstance(t.get("ja4"), str) else None
             s = sni_stats.get(key)
             if ja3:
-                hits.add(index.hash("ja3", ja3), "TLS JA3", ts, r.get("src_ip", ""), r.get("dest_ip", ""), r.get("dest_port"), detail=sni)
+                hits.add(index.hash("ja3", ja3), "ctx_tls_ja3", ts, r.get("src_ip", ""), r.get("dest_ip", ""), r.get("dest_port"), detail=sni)
                 if s is not None and len(s["ja3"]) < 5:
                     s["ja3"].add(ja3)
             if ja4:
-                hits.add(index.hash("ja4", ja4), "TLS JA4", ts, r.get("src_ip", ""), r.get("dest_ip", ""), r.get("dest_port"), detail=sni)
+                hits.add(index.hash("ja4", ja4), "ctx_tls_ja4", ts, r.get("src_ip", ""), r.get("dest_ip", ""), r.get("dest_port"), detail=sni)
                 if s is not None and len(s["ja4"]) < 5:
                     s["ja4"].add(ja4)
 
@@ -353,12 +353,12 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
             sender = (r.get("tx_hosts") or [""])[0]
             receiver = (r.get("rx_hosts") or [""])[0]
         sl, rl = is_local(sender), is_local(receiver)
-        direction = "внутри сети" if sl and rl else "загрузка в сеть" if rl else "выгрузка наружу" if sl else "внешний"
+        direction = "internal" if sl and rl else "download" if rl else "upload" if sl else "external"
         ioc = []
         for kind in ("sha256", "sha1", "md5"):
             m = index.hash(kind, r.get(kind) or "")
             if m:
-                hits.add(m, f"Файл ({kind.upper()})", ts, sender, receiver, detail=r.get("filename") or fuid_name.get(fuid, ""))
+                hits.add(m, f"ctx_file_{kind}", ts, sender, receiver, detail=r.get("filename") or fuid_name.get(fuid, ""))
                 ioc.extend(m.entries)
                 break
         extracted = r.get("extracted")
@@ -425,8 +425,8 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
         sl, dl = is_local(src), is_local(dst)
         m_dst = index.ip(dst)
         m_src = index.ip(src)
-        hits.add(m_dst, "Соединение (получатель)", ts, src, dst, dp, detail=f"{proto}/{dp} {svc}")
-        hits.add(m_src, "Соединение (инициатор)", ts, src, dst, dp, detail=f"{proto}/{dp} {svc}")
+        hits.add(m_dst, "ctx_conn_dst", ts, src, dst, dp, detail=f"{proto}/{dp} {svc}")
+        hits.add(m_src, "ctx_conn_src", ts, src, dst, dp, detail=f"{proto}/{dp} {svc}")
         if not dl:
             e = ext.get(dst)
             if e is None:
@@ -594,7 +594,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
         pts = float(weights["ioc_hit"]) * (conf / 100.0 if scale else 1.0)
         ext_hit = next((o for o in h.get("observed", []) if not is_local(o)), "")
         for ip in h.get("hosts", []):
-            e = risk_add(ip, pts, f"IOC {h.get('value')} ({h.get('type_label')})", h.get("value", ""), ext_hit)
+            e = risk_add(ip, pts, {"k": "hr_ioc", "v": h.get("value"), "t": h.get("type")}, h.get("value", ""), ext_hit)
             if e:
                 e["ioc"] += 1
     for a in alerts_list:
@@ -614,31 +614,31 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
             continue
         ext_host = fl["receiver"] if is_local(fl["sender"]) else fl["sender"]
         for ip in (fl["sender"], fl["receiver"]):
-            e = risk_add(ip, float(weights["file_ioc"]), f"файл с IOC {fl.get('filename') or fl.get('sha256') or fl.get('fuid')}",
+            e = risk_add(ip, float(weights["file_ioc"]), {"k": "hr_file", "name": fl.get("filename") or fl.get("sha256") or fl.get("fuid")},
                          fl.get("sha256") or fl.get("filename", ""), ext_host)
             if e:
                 e["files"] += 1
     for b in beacons:
-        e = risk_add(b["src"], float(weights["beacon"]), f"маяк на {b['dst']}:{b['dp']}", "", b["dst"])
+        e = risk_add(b["src"], float(weights["beacon"]), {"k": "hr_beacon", "dst": b["dst"], "dp": b["dp"]}, "", b["dst"])
         if e:
             e["beacons"] += 1
     for u in large_uploads:
-        e = risk_add(u["src"], float(weights["large_upload"]), f"крупная выгрузка на {u['dst']}", "", u["dst"])
+        e = risk_add(u["src"], float(weights["large_upload"]), {"k": "hr_upload", "dst": u["dst"]}, "", u["dst"])
         if e:
             e["uploads"] += 1
     for c in cleartext_auth[:100]:
         e = risk_add(c.get("src", ""), float(weights["cleartext_auth"]),
-                     f"учётные данные в открытом виде ({c.get('proto')}, {c.get('user') or '?'})", "", c.get("dst", ""))
+                     {"k": "hr_cleartext", "proto": c.get("proto"), "user": c.get("user") or "?"}, "", c.get("dst", ""))
         if e:
             e["cleartext"] += 1
     for t in invalid_certs:
         e = risk_add(t.get("src", ""), float(weights["tls_invalid"]),
-                     f"TLS с невалидным сертификатом {t.get('sni') or t.get('dst')}", t.get("sni", ""), t.get("dst", ""))
+                     {"k": "hr_tls", "target": t.get("sni") or t.get("dst")}, t.get("sni", ""), t.get("dst", ""))
         if e:
             e["tls"] += 1
     for d in suspicious_dns_list:
         for ip in d.get("clients", []):
-            e = risk_add(ip, float(weights["dns_suspicious"]), f"подозрительный DNS {d['name']}", d["name"], "")
+            e = risk_add(ip, float(weights["dns_suspicious"]), {"k": "hr_dns", "name": d["name"]}, d["name"], "")
             if e:
                 e["dns"] += 1
 
@@ -735,42 +735,41 @@ def _verdict_scored(rep: dict, cfg=None) -> dict:
     weights, thr, scale = _verdict_config(cfg)
 
     score = 0.0
-    reasons: list[str] = []
+    reasons: list[dict] = []
 
-    def add(pts: float, why: str):
+    def add(pts: float, key: str, **params):
         nonlocal score
         if pts:
             score += pts
-            reasons.append(f"+{round(pts)} {why}")
+            reasons.append({"pts": round(pts), "k": key, **params})
 
     for h in rep.get("ioc_hits") or []:
         conf = float(h.get("max_conf") or 0)
         pts = float(weights["ioc_hit"]) * (conf / 100.0 if scale else 1.0)
-        add(pts, f"IOC {h.get('value')} ({h.get('type_label') or h.get('type')}, conf {conf:.0f})")
+        add(pts, "vr_ioc", v=h.get("value"), t=h.get("type"), conf=f"{conf:.0f}")
     for a in rep.get("alerts") or []:
         name = a.get("signature") or a.get("name") or f"sid {a.get('sid')}"
-        add(float(weights.get(f"alert_sev_{a.get('severity')}", 0)),
-            f"Suricata sev{a.get('severity')} {name}".strip())
+        add(float(weights.get(f"alert_sev_{a.get('severity')}", 0)), "vr_alert", sev=a.get("severity"), name=name)
     for f_ in rep.get("files") or []:
         if f_.get("ioc"):
             name = f_.get("filename") or f_.get("name") or f_.get("sha256") or f_.get("fuid") or ""
-            add(float(weights["file_ioc"]), f"файл {name}".strip())
+            add(float(weights["file_ioc"]), "vr_file", name=name)
     findings = rep.get("findings") or {}
     for b in findings.get("beacons") or []:
         target = f"{b.get('dst')}:{b.get('dp')}" if b.get("dst") else ""
-        add(float(weights["beacon"]), f"маяк {b.get('src') or ''} → {target}".strip())
+        add(float(weights["beacon"]), "vr_beacon", src=b.get("src") or "", target=target)
     for u in findings.get("large_uploads") or []:
         target = f"{u.get('src') or ''} → {u.get('dst') or ''}".strip()
-        add(float(weights["large_upload"]), f"большой upload {target}")
+        add(float(weights["large_upload"]), "vr_upload", target=target)
     for c in findings.get("cleartext_auth") or []:
         target = f"{c.get('src') or ''} → {c.get('dst') or ''}".strip(" →")
         user = f" ({c.get('user')})" if c.get("user") else ""
-        add(float(weights["cleartext_auth"]), f"учётные данные в открытом виде{user} {target}".strip())
+        add(float(weights["cleartext_auth"]), "vr_cleartext", user=user, target=target)
     for t in (rep.get("tls") or {}).get("invalid") or []:
         target = t.get("sni") or t.get("dst") or ""
-        add(float(weights["tls_invalid"]), f"TLS с невалидным сертификатом {target}".strip())
+        add(float(weights["tls_invalid"]), "vr_tls", target=target)
     for d in (rep.get("dns") or {}).get("suspicious") or []:
-        add(float(weights["dns_suspicious"]), f"подозрительный DNS {d.get('name') or d.get('q') or ''}".strip())
+        add(float(weights["dns_suspicious"]), "vr_dns", name=d.get("name") or d.get("q") or "")
 
     level = "critical" if score >= thr["critical"] else "suspicious" if score >= thr["suspicious"] else "clean"
     labels = {"critical": "Обнаружены признаки компрометации",
