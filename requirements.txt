@@ -3,3 +3,4 @@ waitress>=3.0
 pyyaml>=6.0
 requests>=2.31
 pyzipper>=0.3.6
+reportlab>=4.0
