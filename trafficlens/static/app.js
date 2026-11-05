@@ -47,6 +47,12 @@ window.TL = (function () {
     e.preventDefault();
     const a = b.dataset.action, job = b.dataset.job;
     try {
+      if (a === "theme") {
+        const cur = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        document.documentElement.dataset.theme = cur;
+        try { localStorage.setItem("tl-theme", cur); } catch (e) { }
+        return;
+      }
       if (a === "delete-job") {
         if (!await confirm("Удалить задачу " + job + " вместе с PCAP, логами и отчётом?", { danger: true, ok: "Удалить" })) return;
         await api(`/api/jobs/${job}/delete`); toast("Задача удалена");

@@ -13,6 +13,7 @@ DEFAULTS: dict = {
     "port": 8080,
     # Пароль для входа в веб-UI. Пусто — без авторизации (например, когда доступ закрыт Caddy).
     "auth": {
+        "username": "admin",
         "password_hash": "",
         "cookie_secure": False,"password": ""},
     "max_upload_mb": 4096,
@@ -99,6 +100,7 @@ DEFAULTS: dict = {
 }
 
 ENV_MAP = {
+    "TL_USERNAME": ("auth", "username"),
     "TL_PASSWORD": ("auth", "password"),
     "TL_ABUSECH_KEY": ("iocs", "abusech", "auth_key"),
     "TL_MISP_URL": ("iocs", "misp", "url"),

@@ -653,6 +653,19 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
         })
     priority_hosts.sort(key=lambda x: -x["score"])
 
+    # ---- граф сетевых обращений: строим по крупнейшим соединениям, чтобы не перегружать отчёт
+    graph_links = []
+    graph_nodes: dict[str, dict] = {}
+    for tot, _seq, c in sorted(top_conn, key=lambda x: -x[0])[:150]:
+        src, dst = c["src"], c["dst"]
+        if not src or not dst:
+            continue
+        for ip in (src, dst):
+            g = graph_nodes.setdefault(ip, {"id": ip, "name": name_of(ip), "local": is_local(ip), "ioc": ip in ioc_ips, "bytes": 0})
+            g["bytes"] += tot
+        graph_links.append({"source": src, "target": dst, "bytes": tot, "proto": c["proto"], "port": c["dp"], "ioc": bool(c["ioc"])})
+    graph = {"nodes": list(graph_nodes.values()), "links": graph_links}
+
     totals = {
         "conns": conns_total, "bytes": bytes_total, "pkts": pkts_total,
         "hosts_local": len(local_hosts), "hosts_external": len(ext),
@@ -676,6 +689,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
         "services": sorted(({"service": k, "conns": v[0], "bytes": v[1]} for k, v in services.items()), key=lambda x: -x["conns"])[:40],
         "ports": sorted(({"proto": k[0], "port": k[1], "conns": v[0], "bytes": v[1]} for k, v in ports.items()), key=lambda x: -x["conns"])[:60],
         "connections": [row for _, _, row in sorted(top_conn, key=lambda x: -x[0])],
+        "graph": graph,
         "dns": {
             "top": [{"name": q, "count": n, "clients": len(dns_clients[q]), "rcode": dict(dns_rcode[q])} for q, n in dns_q.most_common(max_rows)],
             "nxdomain": [{"name": q, "count": n, "clients": sorted(nx_clients[q])[:5]} for q, n in nx.most_common(200)],

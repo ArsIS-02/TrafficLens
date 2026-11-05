@@ -1,12 +1,15 @@
 {% extends "layout.html" %}
-{% block title %}Вход — TrafficLens{% endblock %}
+{% block title %}{{ L.login_title }} — TrafficLens{% endblock %}
 {% block content %}
 <div class="panel login">
-  <h2>Вход в TrafficLens</h2>
+  <h2>{{ L.login_title }}</h2>
   <form method="post">
-    <input type="password" name="password" placeholder="Пароль" autofocus autocomplete="current-password">
+    <label class="faint" for="username">{{ L.login_user }}</label>
+    <input type="text" id="username" name="username" value="{{ username or 'admin' }}" autocomplete="username">
+    <label class="faint" for="password">{{ L.login_password }}</label>
+    <input type="password" id="password" name="password" placeholder="{{ L.login_password }}" autofocus autocomplete="current-password">
     {% if error %}<div class="badge crit" style="margin-bottom:12px">{{ error }}</div>{% endif %}
-    <button class="btn primary" type="submit">Войти</button>
+    <button class="btn primary" type="submit">{{ L.login_submit }}</button>
   </form>
 </div>
 {% endblock %}

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Отчёт: {{ r.meta.filename }} — TrafficLens</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%230f6e78'/%3E%3Ccircle cx='7' cy='7' r='3.6' fill='none' stroke='white' stroke-width='1.6'/%3E%3Cpath d='M10 10l3 3' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E">
+<script>(function(){try{var s=localStorage.getItem('tl-theme');if(!s){s=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}document.documentElement.dataset.theme=s}catch(e){}})();</script>
 <style>{{ inline_css()|safe }}</style>
 </head>
 {% set t = r.totals %}{% set f = r.findings %}
@@ -51,6 +52,7 @@
   <button class="tab" data-tab="alerts">Сигнатуры {{ tabbadge(r.alerts|length, 'warn') }}</button>
   <button class="tab" data-tab="files">Файлы {{ tabbadge(t.files) }}</button>
   <button class="tab" data-tab="net">Сетевая активность</button>
+  <button class="tab" data-tab="graph">{{ L.tab_graph }} {{ tabbadge(r.graph.links|length) }}</button>
   <button class="tab" data-tab="dns">DNS {{ tabbadge(r.dns.suspicious|length, 'warn') }}</button>
   <button class="tab" data-tab="http">HTTP</button>
   <button class="tab" data-tab="tls">TLS {{ tabbadge(r.tls.invalid|length, 'warn') }}</button>
@@ -292,6 +294,15 @@
         <td class="num" data-v="{{ c.dur }}">{{ c.dur|dur }}</td><td class="num" data-v="{{ c.ob }}">{{ c.ob|bytes }}</td><td class="num" data-v="{{ c.rb }}">{{ c.rb|bytes }}</td>
         <td class="mono faint">{{ c.state }}</td></tr>{% else %}{{ empty(8) }}{% endfor %}</tbody>
     </table></div>
+  </section>
+</section>
+
+<!-- ============================================================ ГРАФ -->
+<section class="tabpane" id="tab-graph">
+  <section class="panel">
+    <div class="panel-head"><h2>{{ L.graph_title }}</h2><span class="faint">{{ L.graph_hint }}</span></div>
+    <svg id="netgraph" class="netgraph" viewBox="0 0 1000 560" role="img" aria-label="{{ L.graph_title }}"></svg>
+    <script type="application/json" id="graph-data">{{ r.graph|tojson }}</script>
   </section>
 </section>
 
