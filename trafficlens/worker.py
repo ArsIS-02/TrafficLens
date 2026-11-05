@@ -160,15 +160,56 @@ class Scheduler(threading.Thread):
             time.sleep(60)
 
     def retention(self):
-        days = float(self.cfg["capture"].get("retention_days", 7))
-        if days <= 0:
-            return
-        cutoff = time.time() - days * 86400
-        for j in self.db.jobs(limit=100000):
-            if j["source"] == "capture" and j["created"] < cutoff and j["status"] in ("done", "error"):
-                if j.get("summary", {}).get("verdict") == "critical":
-                    continue  # критичные храним, пока не удалят вручную
-                pipeline.delete(self.cfg, self.db, j["id"])
+        r = self.cfg.get("retention") or {}
+        days = r.get("days")
+        if days is None:  # обратная совместимость со старым ключом
+            days = self.cfg["capture"].get("retention_days", 7)
+        days = float(days or 0)
+        max_gb = float(r.get("max_total_gb") or 0)
+        keep = set(r.get("keep_verdicts") or ["critical"])
+        dry_run = bool(r.get("dry_run", False))
+
+        def verdict_level(j):
+            v = (j.get("summary") or {}).get("verdict")
+            return v.get("level") if isinstance(v, dict) else v
+
+        def delete(j):
+            if dry_run:
+                log.info("retention dry-run: удалил бы %s", j["id"])
+                return
+            pipeline.delete(self.cfg, self.db, j["id"])
+            log.info("retention: удалена задача %s (%s)", j["id"], j.get("filename", ""))
+
+        def active_jobs():
+            return [j for j in self.db.jobs(limit=100000) if j["status"] in ("done", "error")]
+
+        # 1) по возрасту — для всех источников (upload и capture)
+        if days > 0:
+            cutoff = time.time() - days * 86400
+            for j in active_jobs():
+                if j["created"] < cutoff and verdict_level(j) not in keep:
+                    delete(j)
+
+        # 2) по квоте — удаляем самые старые, пока не уложимся в лимит
+        if max_gb > 0:
+            limit = max_gb * 1024 ** 3
+
+            def dir_size(j):
+                jd = pipeline.job_dir(self.cfg, j["id"])
+                if not jd.exists():
+                    return 0
+                return sum(f.stat().st_size for f in jd.rglob("*") if f.is_file())
+
+            jobs = active_jobs()
+            total = sum(dir_size(j) for j in jobs)
+            for j in sorted(jobs, key=lambda x: x["created"]):
+                if total <= limit:
+                    break
+                if verdict_level(j) in keep:
+                    continue
+                sz = dir_size(j)
+                delete(j)
+                total -= sz
 
 
 class SpoolWatcher(threading.Thread):
