@@ -57,17 +57,17 @@ def process(cfg: Config, db: DB, job: dict) -> None:
     try:
         if not pcap.exists():
             raise runner.ToolError("PCAP-файл не найден")
-        db.update_job(job["id"], stage="Zeek: разбор протоколов")
+        db.update_job(job["id"], stage="zeek")
         zdir = jd / "zeek"
         if zdir.exists():
             shutil.rmtree(zdir)
         runner.run_zeek(cfg, pcap, zdir, logfile)
-        db.update_job(job["id"], stage="Suricata: сигнатуры")
+        db.update_job(job["id"], stage="suricata")
         sdir = jd / "suricata"
         if sdir.exists():
             shutil.rmtree(sdir)
         runner.run_suricata(cfg, pcap, sdir, logfile)
-        db.update_job(job["id"], stage="Сверка с IOC и отчёт")
+        db.update_job(job["id"], stage="match")
         s = build_report(cfg, db, job)
         db.update_job(job["id"], status="done", stage="", finished=time.time(), summary=s)
         log.info("job %s done in %.1fs", job["id"], time.time() - t0)

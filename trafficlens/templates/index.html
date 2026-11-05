@@ -51,7 +51,7 @@
         <td class="nowrap muted">{% if s.start %}{{ s.start|ts('%d.%m %H:%M') }} – {{ s.end|ts('%H:%M') }}{% else %}—{% endif %}</td>
         <td class="nowrap">
           {% if j.status == 'queued' %}<span data-live><span class="dot busy"></span>{{ L.queued }}</span>
-          {% elif j.status == 'running' %}<span data-live><span class="dot busy"></span>{{ j.stage or L.running }}</span>
+          {% elif j.status == 'running' %}<span data-live><span class="dot busy"></span>{{ L.get('stage_' ~ j.stage, j.stage) if j.stage else L.running }}</span>
           {% elif j.status == 'error' %}<span class="badge crit" title="{{ j.error }}">{{ L.error }}</span>
           {% else %}<span class="dot on"></span>{{ L.done }}{% endif %}
         </td>

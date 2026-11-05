@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import re
 import time
@@ -44,7 +45,7 @@ def _abusech_headers(key: str) -> dict:
 
 def fetch_urlhaus(key: str) -> list[Indicator]:
     if not key:
-        raise FeedError("нужен Auth-Key abuse.ch")
+        raise FeedError("feed_err_need_key")
     r = requests.post("https://urlhaus-api.abuse.ch/v1/urls/recent/", headers=_abusech_headers(key), timeout=TIMEOUT)
     r.raise_for_status()
     data = r.json()
@@ -65,7 +66,7 @@ THREATFOX_TYPES = {"ip:port": None, "domain": "domain", "url": "url",
 
 def fetch_threatfox(key: str, days: int = 7) -> list[Indicator]:
     if not key:
-        raise FeedError("нужен Auth-Key abuse.ch")
+        raise FeedError("feed_err_need_key")
     r = requests.post("https://threatfox-api.abuse.ch/api/v1/", json={"query": "get_iocs", "days": min(int(days), 7)},
                       headers=_abusech_headers(key), timeout=TIMEOUT)
     r.raise_for_status()
@@ -98,7 +99,7 @@ def fetch_feodo(key: str) -> list[Indicator]:
 
 def fetch_malwarebazaar(key: str) -> list[Indicator]:
     if not key:
-        raise FeedError("нужен Auth-Key abuse.ch")
+        raise FeedError("feed_err_need_key")
     out: list[Indicator] = []
     r = requests.get(f"https://mb-api.abuse.ch/v2/files/exports/{key}/recent.csv", headers=UA, timeout=TIMEOUT)
     if r.ok and r.text.count("\n") > 5 and "<html" not in r.text[:500].lower():
@@ -150,7 +151,7 @@ def _verify(v):
 def fetch_misp(cfg: dict) -> list[Indicator]:
     url, key = cfg.get("url", "").rstrip("/"), cfg.get("key", "")
     if not url or not key:
-        raise FeedError("не заданы url/key MISP")
+        raise FeedError("feed_err_misp")
     out: list[Indicator] = []
     page, limit = 1, 20000
     while True:
@@ -219,7 +220,7 @@ def parse_stix(pattern: str) -> list[tuple[str, str | None]]:
 def fetch_opencti(cfg: dict) -> list[Indicator]:
     url, token = cfg.get("url", "").rstrip("/"), cfg.get("token", "")
     if not url or not token:
-        raise FeedError("не заданы url/token OpenCTI")
+        raise FeedError("feed_err_opencti")
     out: list[Indicator] = []
     after, total = None, 0
     flt = {"mode": "and", "filterGroups": [], "filters": [{"key": ["pattern_type"], "values": ["stix"]}]}
@@ -270,7 +271,7 @@ def parse_custom_text(text: str, source_name: str = "") -> tuple[list[Indicator]
         if i:
             items.append(i)
         else:
-            errors.append(f"строка {n}: не распознано «{raw.strip()[:80]}»")
+            errors.append({"k": "parse_line", "n": n, "raw": raw.strip()[:80]})
     return items, errors
 
 
@@ -279,7 +280,7 @@ def load_custom(dir_: Path) -> tuple[list[Indicator], list[str]]:
     for p in sorted(dir_.glob("*.txt")):
         got, errs = parse_custom_text(p.read_text(encoding="utf-8", errors="replace"), f"Свой список: {p.stem}")
         items += got
-        errors += [f"{p.name}: {e}" for e in errs]
+        errors += [dict(e, raw=f"{p.name}: {e['raw']}") if isinstance(e, dict) else f"{p.name}: {e}" for e in errs]
     return items, errors
 
 
@@ -308,12 +309,13 @@ def update_all(cfg: Config, db: DB, only: str | None = None) -> dict[str, str]:
             continue
         try:
             got = fn()
-            warn = ""
+            errs_n = 0
             if isinstance(got, tuple):
                 got, errs = got
-                warn = f"; ошибок разбора: {len(errs)}" if errs else ""
+                errs_n = len(errs)
             n = save_source(db, name, got, mode=mode, max_age_days=int(ic.get("max_age_days", 90)))
-            msg = f"получено {len(got)}, в базе {n}{warn}"
+            msg = json.dumps({"k": "feed_ok_errs" if errs_n else "feed_ok", "got": len(got), "db": n, "errs": errs_n},
+                             ensure_ascii=False)
             db.set_feed(name, True, n, msg)
             result[name] = "ok: " + msg
             log.info("feed %s: %s", name, msg)
@@ -321,18 +323,21 @@ def update_all(cfg: Config, db: DB, only: str | None = None) -> dict[str, str]:
             msg = _short_err(e)
             prev = db.feeds().get(name, {})
             db.set_feed(name, False, prev.get("count", 0) or 0, msg)
-            result[name] = "ошибка: " + msg
+            result[name] = "error: " + msg
             log.warning("feed %s failed: %s", name, msg)
     return result
 
 
 def _short_err(e: Exception) -> str:
+    """Компактный JSON-токен ошибки (локализуется в UI) — либо сырое описание."""
+    if isinstance(e, FeedError) and str(e).startswith("feed_err_"):
+        return json.dumps({"k": str(e)}, ensure_ascii=False)
     if isinstance(e, requests.HTTPError) and e.response is not None:
         code = e.response.status_code
-        hint = {401: "нет ключа или ключ не принят", 403: "ключ не принят / доступ запрещён"}.get(code, "")
-        return f"HTTP {code} {hint}".strip()
+        return json.dumps({"k": "feed_err_http", "code": code,
+                           "hint": f"feed_err_http_{code}" if code in (401, 403) else ""}, ensure_ascii=False)
     if isinstance(e, requests.ConnectionError):
-        return "нет соединения с источником"
+        return '{"k": "feed_err_conn"}'
     if isinstance(e, requests.Timeout):
-        return "таймаут"
-    return str(e)[:300] or e.__class__.__name__
+        return '{"k": "feed_err_timeout"}'
+    return json.dumps({"k": "feed_err_other", "msg": str(e)[:300] or e.__class__.__name__}, ensure_ascii=False)

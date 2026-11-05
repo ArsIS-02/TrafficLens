@@ -164,7 +164,7 @@ def run_suricata(cfg: Config, pcap: Path, outdir: Path, logfile: Path) -> bool:
 def update_rules(cfg: Config) -> tuple[bool, str]:
     su = shutil.which("suricata-update")
     if not su:
-        return False, "suricata-update не установлен"
+        return False, "rules_err_no_update"
     out = cfg.rules_dir / "rules"
     data = cfg.rules_dir / "data"
     out.mkdir(parents=True, exist_ok=True)
@@ -178,6 +178,6 @@ def update_rules(cfg: Config) -> tuple[bool, str]:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
     except subprocess.TimeoutExpired:
-        return False, "таймаут suricata-update"
+        return False, "rules_err_timeout"
     tail = (r.stdout + r.stderr).strip().splitlines()[-3:]
     return r.returncode == 0, " | ".join(tail)[-400:]

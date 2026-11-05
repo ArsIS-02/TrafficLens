@@ -67,22 +67,22 @@ def test_report_build(env, tmp_path):
     hits = {(h["type"], h["value"]): h for h in rep["ioc_hits"]}
     assert ("ip", "203.0.113.66") in hits
     ip_hit = hits[("ip", "203.0.113.66")]
-    assert "Соединение (получатель)" in ip_hit["contexts"] and "DNS-ответ" in ip_hit["contexts"]
+    assert "ctx_conn_dst" in ip_hit["contexts"] and "ctx_dns_answer" in ip_hit["contexts"]
     assert ip_hit["count"] >= 16
     assert ("domain", "evil-c2.example") in hits
-    assert {"DNS-запрос", "TLS SNI"} <= set(hits[("domain", "evil-c2.example")]["contexts"])
+    assert {"ctx_dns_query", "ctx_tls_sni"} <= set(hits[("domain", "evil-c2.example")]["contexts"])
     assert ("url", "198.51.100.23/payload.exe") in hits
     assert ("sha256", fx.EICAR_SHA256) in hits
     assert ("ja3", fx.JA3) in hits
 
     assert rep["verdict"]["level"] == "critical"
-    assert any("203.0.113.66:8443" in x for x in rep["verdict"]["reasons"])
-    assert any("payload.exe" in x for x in rep["verdict"]["reasons"])
+    assert any("203.0.113.66:8443" in json.dumps(x, ensure_ascii=False) for x in rep["verdict"]["reasons"])
+    assert any("payload.exe" in json.dumps(x, ensure_ascii=False) for x in rep["verdict"]["reasons"])
 
     ph = rep["priority_hosts"]
     assert ph and ph[0]["ip"] == fx.WS and ph[0]["level"] == "high"
     assert ph[0]["counts"]["ioc"] >= 4 and ph[0]["counts"]["files"] == 1 and ph[0]["counts"]["alerts"] >= 1
-    assert "203.0.113.66" in ph[0]["external"] and any("payload.exe" in x for x in ph[0]["reasons"])
+    assert "203.0.113.66" in ph[0]["external"] and any("payload.exe" in json.dumps(x, ensure_ascii=False) for x in ph[0]["reasons"])
     from trafficlens.render import render_report
     html = render_report(rep)
     assert rep["graph"]["nodes"] and rep["graph"]["links"]
@@ -95,20 +95,22 @@ def test_report_build(env, tmp_path):
     html = render_report(legacy)
     assert legacy["graph"]["links"] and 'id="netgraph"' in html
 
-    # английская версия: вся шаблонная обвязка переведена (строки данных остаются как в JSON)
+    # английская версия: переведены и шаблон, и данные отчёта (контексты, типы, вердикт, направления)
     html_en = render_report(json.loads(json.dumps(rep, default=list)), lang="en")
-    for s in (">Summary<", "Priority hosts", "Signatures", "Network activity", "Anomalies", "Download HTML", "External addresses", "1 h 16 min"):
+    for s in (">Summary<", "Priority hosts", "Signatures", "Network activity", "Anomalies", "Download HTML", "External addresses", "1 h 16 min",
+              "Signs of compromise detected", "beacon", "Domain", "Connection (responder)", "DNS query", "download"):
         assert s in html_en, s
-    for s in ("Сводка", "Сигнатуры", "Сетевая активность", "Аномалии", "Приоритетные хосты", "Фильтр по таблице", "Сформировано"):
+    for s in ("Сводка", "Сигнатуры", "Сетевая активность", "Аномалии", "Приоритетные хосты", "Фильтр по таблице", "Сформировано",
+              "Обнаружены признаки", "маяк", "Домен", "Соединение (получатель)", "загрузка в сеть", "DNS-запрос"):
         assert s not in html_en, s
     t = rep["totals"]
     assert t["files"] == 3 and t["alerts"] == 2 and t["alert_sigs"] == 1
 
     f0 = rep["files"][0]  # файлы с IOC — первыми
-    assert f0["sha256"] == fx.EICAR_SHA256 and f0["direction"] == "загрузка в сеть"
+    assert f0["sha256"] == fx.EICAR_SHA256 and f0["direction"] == "download"
     assert f0["filename"] == "payload.exe" and f0["extracted"] == "HTTP-FEICAR1"
     smb = next(f for f in rep["files"] if f["fuid"] == "FSMB1")
-    assert smb["filename"] == "Отчёт Q3.pdf" and smb["direction"] == "внутри сети"
+    assert smb["filename"] == "Отчёт Q3.pdf" and smb["direction"] == "internal"
 
     b = rep["findings"]["beacons"]
     assert b and b[0]["dst"] == "203.0.113.66" and 55 < b[0]["interval"] < 65 and b[0]["ioc"]
@@ -116,7 +118,7 @@ def test_report_build(env, tmp_path):
     assert any(u["port"] == 4444 for u in rep["findings"]["unusual_ports"])
     assert any(c["user"] == "backup" for c in rep["findings"]["cleartext_auth"])
     assert any(c["dur"] >= 3600 for c in rep["findings"]["long_conns"])
-    assert any("DGA" in d["reason"] for d in rep["dns"]["suspicious"])
+    assert any(isinstance(d["reason"], dict) and d["reason"].get("k") == "dns_entropy" for d in rep["dns"]["suspicious"])
     assert rep["dns"]["nxdomain"][0]["name"] == "xk3j9qz7vbn2lm4pw8.biz"
     assert any(r["ip"] == "8.8.8.8" and not r["local"] for r in rep["dns"]["resolvers"])
     assert rep["tls"]["invalid"][0]["sni"] == "api.evil-c2.example"

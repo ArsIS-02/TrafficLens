@@ -13,7 +13,7 @@
 </div>
 <section class="panel" {% if job.status in ('queued', 'running') %}data-job-live="{{ job.id }}"{% endif %}>
   {% if job.status == 'queued' %}<div><span class="dot busy"></span><strong>{{ L.job_queued }}</strong></div>
-  {% elif job.status == 'running' %}<div><span class="dot busy"></span><strong id="job-stage">{{ job.stage or L.job_running }}</strong></div>
+  {% elif job.status == 'running' %}<div><span class="dot busy"></span><strong id="job-stage">{{ L.get('stage_' ~ job.stage, job.stage) if job.stage else L.job_running }}</strong></div>
   {% elif job.status == 'error' %}<div class="verdict critical" style="margin:0"><div class="icon">!</div><div><div class="title">{{ L.job_error }}</div><div>{{ job.error }}</div></div></div>
   {% else %}<div>{{ L.job_no_report }}</div>{% endif %}
   <h3>{{ L.journal }}</h3>

@@ -67,8 +67,8 @@
   <div class="verdict {{ v.level }}">
     <div class="icon">{{ '!' if v.level == 'critical' else '?' if v.level == 'suspicious' else '✓' }}</div>
     <div>
-      <div class="title">{{ v.label }}{% if v.score is defined and v.score %} · score {{ v.score }}{% endif %}</div>
-      {% if v.reasons %}<ul>{% for x in v.reasons %}<li>{{ x }}</li>{% endfor %}</ul>
+      <div class="title">{{ L.get('verdict_label_' ~ v.level, v.label) }}{% if v.score is defined and v.score %} · score {{ v.score }}{% endif %}</div>
+      {% if v.reasons %}<ul>{% for x in v.reasons %}<li>{{ x|lreason }}</li>{% endfor %}</ul>
       {% else %}<div class="muted">{{ L.no_hits_banner.format(n=r.meta.ioc_count|int) }}</div>{% endif %}
     </div>
   </div>
@@ -93,7 +93,7 @@
       {% for h in r.priority_hosts[:10] %}<tr class="{{ 'hl' if h.level == 'high' }}">
         <td>{{ host(h.ip, h.name) }}{% if h.mac %}<div class="faint mono">{{ h.mac }}</div>{% endif %}</td>
         <td class="num" data-v="{{ h.score }}"><span class="badge {{ 'crit' if h.level == 'high' else 'warn' if h.level == 'medium' else 'info' }}">{{ h.score }}</span></td>
-        <td>{% for x in h.reasons %}<div>{{ x }}</div>{% endfor %}</td>
+        <td>{% for x in h.reasons %}<div>{{ x|lreason }}</div>{% endfor %}</td>
         <td class="mono break">{{ h.indicators|join(', ') }}</td>
         <td class="mono break">{{ h.external|join(', ') }}</td>
       </tr>{% endfor %}
@@ -148,8 +148,8 @@
     <div class="table-wrap"><table>
       <thead><tr><th>{{ L.col_indicator }}</th><th>{{ L.col_where }}</th><th>{{ L.col_source }}</th><th class="num">{{ L.col_times }}</th><th>{{ L.col_hosts }}</th></tr></thead>
       <tbody>{% for h in r.ioc_hits[:8] %}<tr class="hl">
-        <td class="break"><span class="badge">{{ h.type_label }}</span> <span class="mono copy">{{ h.value }}</span></td>
-        <td>{{ h.contexts|join(', ') }}</td>
+        <td class="break"><span class="badge">{{ h.type|lioc(h.type_label) }}</span> <span class="mono copy">{{ h.value }}</span></td>
+        <td>{% for c in h.contexts %}{{ c|lctx }}{{ ", " if not loop.last }}{% endfor %}</td>
         <td>{{ h.sources[0].info }}{% if h.sources|length > 1 %} <span class="faint">+{{ h.sources|length - 1 }}</span>{% endif %}</td>
         <td class="num">{{ h.count }}</td><td class="mono">{{ h.hosts[:4]|join(', ') }}</td></tr>{% endfor %}</tbody>
     </table></div>
@@ -166,7 +166,8 @@
       <dt>Suricata</dt><dd>{% set sm = r.meta.suricata or {} %}
         {% if sm.status == 'ok' %}{{ (r.meta.tools or {}).suricata or '—' }}, {{ L.rules_count }}: {{ sm.count|int }} ({{ sm.source }})
         {% elif sm.status == 'disabled' %}{{ L.suri_disabled }}
-        {% elif sm.warning %}<span class="badge warn">{{ L.suri_no_rules if sm.status == 'no_rules' else L.suri_not_run }}</span> {{ sm.warning }}
+        {% elif sm.status == 'no_rules' or sm.status == 'no_eve' %}<span class="badge warn">{{ L.suri_no_rules if sm.status == 'no_rules' else L.suri_not_run }}</span> {{ L.get('suri_warn_' ~ sm.status, sm.warning) }}
+        {% elif sm.warning %}<span class="badge warn">{{ L.suri_not_run }}</span> {{ sm.warning }}
         {% else %}{{ L.suri_never }}{% endif %}</dd>
       <dt>{{ L.ioc_db }}</dt><dd>{{ r.meta.ioc_count|int }} {{ L.ioc_db_at }}</dd>
       {% if r.meta.job_id %}<dt>{{ L.job_task }}</dt><dd>{{ r.meta.job_id }}</dd>{% endif %}
@@ -183,11 +184,11 @@
         <th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_first_last }}</th><th>{{ L.col_hosts }}</th></tr></thead>
       <tbody>
       {% for h in r.ioc_hits %}<tr class="hl">
-        <td>{{ h.type_label }}</td>
+        <td>{{ h.type|lioc(h.type_label) }}</td>
         <td class="break"><span class="mono copy">{{ h.value }}</span>{% if h.port_match %} <span class="badge crit" title="{{ L.port_match_title }}">{{ L.port_match }}</span>{% endif %}
           {% if h.names %}<div class="faint">{{ h.names|join(', ') }}</div>{% endif %}</td>
         <td class="break mono">{{ h.observed[:5]|join(', ') }}</td>
-        <td>{% for c, n in h.contexts.items() %}<div>{{ c }} <span class="faint">×{{ n }}</span></div>{% endfor %}</td>
+        <td>{% for c, n in h.contexts.items() %}<div>{{ c|lctx }} <span class="faint">×{{ n }}</span></div>{% endfor %}</td>
         <td>{% for s in h.sources[:4] %}<div><span class="badge accent">{{ s.source }}</span> {{ s.info }}{% if s.tags %} <span class="faint">[{{ s.tags }}]</span>{% endif %}</div>{% endfor %}</td>
         <td class="num">{{ h.count }}</td>
         <td class="nowrap">{{ h.first|ts('%d.%m %H:%M:%S') }}<div class="faint">{{ h.last|ts('%d.%m %H:%M:%S') }}</div></td>
@@ -201,7 +202,7 @@
     <h2>{{ L.examples }}</h2>
     {% for h in r.ioc_hits[:30] %}
       <h3 class="break" style="text-transform:none">{{ h.value }}</h3>
-      <table><tbody>{% for e in h.examples %}<tr><td class="nowrap">{{ e.ts|ts }}</td><td>{{ e.ctx }}</td><td class="mono">{{ e.src }} → {{ e.dst }}{% if e.port %}:{{ e.port }}{% endif %}</td><td class="break">{{ e.detail }}</td></tr>{% endfor %}</tbody></table>
+      <table><tbody>{% for e in h.examples %}<tr><td class="nowrap">{{ e.ts|ts }}</td><td>{{ e.ctx|lctx }}</td><td class="mono">{{ e.src }} → {{ e.dst }}{% if e.port %}:{{ e.port }}{% endif %}</td><td class="break">{{ e.detail }}</td></tr>{% endfor %}</tbody></table>
     {% endfor %}
   </section>
   {% endif %}
@@ -215,12 +216,12 @@
       <thead><tr><th data-sort="num">{{ L.col_severity }}</th><th data-sort="text">{{ L.col_signature }}</th><th data-sort="text">{{ L.col_category }}</th><th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_directions }}</th><th>{{ L.col_period }}</th></tr></thead>
       <tbody>
       {% for a in r.alerts %}<tr class="{{ 'hl' if a.severity == 1 }}">
-        <td data-v="{{ a.severity }}"><span class="badge {{ 'crit' if a.severity == 1 else 'warn' if a.severity == 2 else '' }}">{{ a.sev_label }}</span></td>
+        <td data-v="{{ a.severity }}"><span class="badge {{ 'crit' if a.severity == 1 else 'warn' if a.severity == 2 else '' }}">{{ a.severity|lsev(a.sev_label) }}</span></td>
         <td>{{ a.signature }}<div class="faint">sid {{ a.sid }}</div></td>
         <td>{{ a.category }}</td><td class="num">{{ a.count }}</td>
         <td class="mono">{% for p in a.pairs %}<div>{{ p }}</div>{% endfor %}</td>
         <td class="nowrap">{{ a.first|ts('%d.%m %H:%M:%S') }}<div class="faint">{{ a.last|ts('%d.%m %H:%M:%S') }}</div></td>
-      </tr>{% else %}{% set sm = r.meta.suricata or {} %}{{ empty(6, L.no_alerts if sm.status == 'ok' else (sm.warning or L.suri_not_ran)) }}{% endfor %}
+      </tr>{% else %}{% set sm = r.meta.suricata or {} %}{{ empty(6, L.no_alerts if sm.status == 'ok' else (L.get('suri_warn_' ~ (sm.status or ''), '') or sm.warning or L.suri_not_ran)) }}{% endfor %}
       </tbody>
     </table></div>
   </section>
@@ -238,7 +239,7 @@
         <td class="nowrap" data-v="{{ x.ts }}">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td>
         <td>{{ x.proto }}</td>
         <td class="mono nowrap">{{ x.sender }}<div>→ {{ x.receiver }}</div></td>
-        <td>{{ x.direction }}</td>
+        <td>{{ x.direction|ldir }}</td>
         <td class="break">{{ x.filename or '—' }}{% if x.url %}<div class="faint">{{ x.url[:160] }}</div>{% endif %}
           {% if x.ioc %}<div><span class="badge crit">{{ x.ioc[0].info }}</span></div>{% endif %}</td>
         <td>{{ x.mime }}</td>
@@ -313,7 +314,7 @@
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.dns_suspicious_t }}</h2><span class="faint">{{ L.dns_suspicious_hint }}</span></div>
     <div class="table-wrap"><table>
       <thead><tr><th>{{ L.col_name }}</th><th>{{ L.col_reason }}</th><th class="num">{{ L.col_times }}</th><th>{{ L.col_clients }}</th></tr></thead>
-      <tbody>{% for d in r.dns.suspicious %}<tr><td class="mono break">{{ d.name }}</td><td>{{ d.reason }}</td><td class="num">{{ d.count }}</td><td class="mono">{{ d.clients|join(', ') }}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for d in r.dns.suspicious %}<tr><td class="mono break">{{ d.name }}</td><td>{{ d.reason|lreason }}</td><td class="num">{{ d.count }}</td><td class="mono">{{ d.clients|join(', ') }}</td></tr>{% endfor %}</tbody>
     </table></div>
   </section>
   {% endif %}
