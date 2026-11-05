@@ -606,7 +606,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None) -
         "findings": {"beacons": beacons[:200], "large_uploads": large_uploads, "long_conns": sorted(long_conns, key=lambda x: -x["dur"]),
                      "unusual_ports": unusual_ports, "cleartext": cleartext_list, "cleartext_auth": cleartext_auth[:100]},
     }
-    report["verdict"] = verdict(report)
+    report["verdict"] = verdict(report, cfg=cfg)
     return report
 
 
@@ -618,7 +618,72 @@ def _is_mcast(ip: str) -> bool:
         return True
 
 
-def verdict(rep: dict) -> dict:
+def _verdict_scored(rep: dict, cfg=None) -> dict:
+    """Скоринговый вердикт: сумма взвешенных находок + объяснение."""
+    vcfg = (cfg.get("verdict") or {}) if isinstance(cfg, dict) else {}
+    weights = {"ioc_hit": 40, "alert_sev_1": 40, "alert_sev_2": 15,
+               "file_ioc": 25, "beacon": 15, "large_upload": 10,
+               "cleartext_auth": 20, "tls_invalid": 10, "dns_suspicious": 5}
+    weights.update(vcfg.get("weights") or {})
+    thr = {"suspicious": 30, "critical": 80}
+    thr.update(vcfg.get("thresholds") or {})
+    scale = bool(vcfg.get("confidence_scale", True))
+
+    score = 0.0
+    reasons: list[str] = []
+
+    def add(pts: float, why: str):
+        nonlocal score
+        if pts:
+            score += pts
+            reasons.append(f"+{round(pts)} {why}")
+
+    for h in rep.get("ioc_hits") or []:
+        conf = float(h.get("max_conf") or 0)
+        pts = float(weights["ioc_hit"]) * (conf / 100.0 if scale else 1.0)
+        add(pts, f"IOC {h.get('value')} ({h.get('type')}, conf {conf:.0f})")
+    for a in rep.get("alerts") or []:
+        add(float(weights.get(f"alert_sev_{a.get('severity')}", 0)),
+            f"Suricata sev{a.get('severity')} {a.get('name') or a.get('signature') or ''}".strip())
+    for f_ in rep.get("files") or []:
+        if f_.get("ioc"):
+            add(float(weights["file_ioc"]), f"файл {f_.get('name') or f_.get('filename') or ''}".strip())
+    findings = rep.get("findings") or {}
+    for b in findings.get("beacons") or []:
+        add(float(weights["beacon"]), f"маяк {b.get('host') or b.get('ip') or ''}".strip())
+    for u in findings.get("large_uploads") or []:
+        add(float(weights["large_upload"]), f"большой upload {u.get('host') or ''}".strip())
+    for c in findings.get("cleartext_auth") or []:
+        add(float(weights["cleartext_auth"]), f"cleartext-auth {c.get('host') or ''}".strip())
+    for t in (rep.get("tls") or {}).get("invalid") or []:
+        add(float(weights["tls_invalid"]), f"TLS {t.get('host') or ''}".strip())
+    for d in (rep.get("dns") or {}).get("suspicious") or []:
+        add(float(weights["dns_suspicious"]), f"DNS {d.get('q') or d.get('query') or ''}".strip())
+
+    level = "critical" if score >= thr["critical"] else "suspicious" if score >= thr["suspicious"] else "clean"
+    labels = {"critical": "Обнаружены признаки компрометации",
+              "suspicious": "Есть подозрительная активность",
+              "clean": "Явных признаков компрометации не найдено"}
+    return {"level": level, "label": labels[level], "score": round(score, 1),
+            "reasons": reasons[:30], "weights": weights, "thresholds": thr}
+
+
+def verdict(*args, **kwargs):
+    """Диспетчер: report-dict на входе -> скоринг; иначе прокси в legacy."""
+    rep = kwargs.get("rep")
+    cfg = kwargs.pop("cfg", None)
+    for a in args:
+        if isinstance(a, dict):
+            if rep is None and "ioc_hits" in a and "alerts" in a:
+                rep = a
+            elif cfg is None and "auth" in a and "suricata" in a:
+                cfg = a
+    if rep is not None:
+        return _verdict_scored(rep, cfg)
+    return _verdict_legacy(*args, **kwargs)
+
+
+def _verdict_legacy(rep: dict) -> dict:
     reasons_c, reasons_s = [], []
     n_ioc = len(rep["ioc_hits"])
     if n_ioc:
