@@ -6,7 +6,7 @@
 RU/EN, вкладка «Граф» открыта в report-graph.html).
 
 Скриншоты (macOS, Chrome):
-  for f in login-ru login-en index index-dark iocs iocs-dark report report-dark report-graph; do
+  for f in login-ru login-en index index-dark iocs iocs-dark report report-dark report-en report-graph; do
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new \
       --disable-gpu --hide-scrollbars --window-size=1440,900 \
       --screenshot="docs/screenshots/ui/$f.png" "file://$PWD/shots/html/$f.html"
@@ -91,6 +91,7 @@ def main() -> None:
         "index": c.get("/").text,
         "iocs": c.get("/iocs").text,
         "report": c.get(f"/jobs/{real}").text,
+        "report-en": c.get(f"/jobs/{real}?lang=en").text,
     }
     for name, html in pages.items():
         full = inline_assets(html)
