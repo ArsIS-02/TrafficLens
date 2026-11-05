@@ -76,6 +76,14 @@ DEFAULTS: dict = {
         "keep_verdicts": ["critical"],
         "dry_run": False,
     },
+    # Скоринговый вердикт (report.verdict).
+    "verdict": {
+        "confidence_scale": True,   # вес IOC-hit умножается на confidence/100
+        "weights": {"ioc_hit": 40, "alert_sev_1": 40, "alert_sev_2": 15,
+                    "file_ioc": 25, "beacon": 15, "large_upload": 10,
+                    "cleartext_auth": 20, "tls_invalid": 10, "dns_suspicious": 5},
+        "thresholds": {"suspicious": 30, "critical": 80},
+    },
     "heuristics": {
         "beacon_min_conns": 12,
         "beacon_max_cv": 0.15,

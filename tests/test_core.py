@@ -374,3 +374,32 @@ def test_retention_days_quota_dryrun(env, tmp_path):
     sched.retention()
     ids = {j["id"] for j in db.jobs()}
     assert d not in ids and e in ids and f in ids
+
+
+def test_verdict_scoring(env):
+    from trafficlens import report as report_mod
+
+    cfg, _db = env
+    base = {"ioc_hits": [], "alerts": [], "files": [],
+            "findings": {"beacons": [], "large_uploads": [], "cleartext_auth": []},
+            "dns": {"suspicious": []}, "tls": {"invalid": []}}
+
+    v = report_mod.verdict(dict(base), cfg=cfg)
+    assert v["level"] == "clean" and v["score"] == 0 and "Явных" in v["label"]
+
+    hit = {"type": "domain", "value": "evil.example", "max_conf": 100}
+    v = report_mod.verdict(dict(base, ioc_hits=[hit]), cfg=cfg)
+    assert v["level"] == "suspicious" and v["score"] == 40 and v["reasons"]
+
+    v = report_mod.verdict(dict(base, ioc_hits=[hit], alerts=[{"severity": 1, "name": "ET MALWARE"}]), cfg=cfg)
+    assert v["level"] == "critical"
+
+    low = dict(base, ioc_hits=[{"type": "domain", "value": "x", "max_conf": 10}])
+    assert report_mod.verdict(low, cfg=cfg)["level"] == "clean"  # 40*0.1=4 < 30
+
+    cfg["verdict"]["thresholds"] = {"suspicious": 100, "critical": 200}
+    assert report_mod.verdict(dict(base, ioc_hits=[hit]), cfg=cfg)["level"] == "clean"
+    del cfg["verdict"]["thresholds"]
+
+    assert report_mod._verdict_legacy(dict(base, ioc_hits=[hit]))["level"] == "critical"
+    assert report_mod._verdict_legacy(dict(base))["label"].startswith("Явных")
