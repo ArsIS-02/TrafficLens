@@ -8,6 +8,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, pass_context, select_autoescape
 
 from .i18n import bundle as i18n_bundle
+from . import mitre
 
 PKG = Path(__file__).parent
 STATIC = PKG / "static"
@@ -147,6 +148,10 @@ def env() -> Environment:
     e.globals["inline_css"] = lambda: (STATIC / "style.css").read_text(encoding="utf-8")
     e.globals["inline_js"] = lambda name: (STATIC / name).read_text(encoding="utf-8")
     e.globals["max"] = max
+    e.globals["mitre_summary"] = mitre.mitre_summary
+    e.globals["mitre_alert"] = mitre.alert_tags
+    e.globals["mitre_tactics"] = mitre.TACTICS
+    e.globals["mitre_techniques"] = mitre.TECHNIQUES
     return e
 
 

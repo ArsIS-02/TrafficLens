@@ -478,3 +478,146 @@ def test_pdf_endpoint(env, tmp_path):
     r = c.get(f"/jobs/{jid}/report.pdf?lang=en")
     assert r.status_code == 200 and r.data.startswith(b"%PDF")
     assert r.headers["Content-Type"] == "application/pdf"
+
+
+def test_search_jobs(env, tmp_path):
+    """Серверный поиск: имя файла, хосты, IOC, переданные файлы."""
+    cfg, db = env
+    from trafficlens import worker
+    pcap = tmp_path / "x.pcap"
+    pcap.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid = worker.enqueue_file(cfg, db, pcap, "capture-friday.pcap", "upload", move=False)
+    other = tmp_path / "y.pcap"
+    other.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    worker.enqueue_file(cfg, db, other, "nothing-here.pcap", "upload", move=False)  # queued, без отчёта
+    fx.make_job(pipeline.job_dir(cfg, jid))
+    pipeline.rematch(cfg, db, jid)
+    db.update_job(jid, status="done")
+
+    for q in ("203.0.113", "evil-c2", "payload.exe", "WS-01", "friday"):
+        assert [j["id"] for j in pipeline.search_jobs(cfg, db, q)] == [jid], q
+    assert pipeline.search_jobs(cfg, db, "zzz-no-such") == []
+    assert len(pipeline.search_jobs(cfg, db, "")) == 2  # пустой запрос — весь список
+
+    from trafficlens.web import create_app
+    c = create_app(cfg, start_workers=False).test_client()
+    assert "capture-friday.pcap" in c.get("/?q=203.0.113").text
+    r = c.get("/?q=zzz-no-such")
+    assert "capture-friday.pcap" not in r.text and "nothing-here.pcap" not in r.text
+
+
+def test_mitre_mapping(env, tmp_path):
+    from trafficlens import mitre
+    from trafficlens.render import render_report
+
+    assert mitre.alert_tags("A Network Trojan was detected") == [("TA0011", "T1071")]
+    assert ("TA0004", "T1068") in mitre.alert_tags("Successful Administrator Privilege Gain")
+    assert mitre.alert_tags("attempted recon") == [("TA0007", "T1046")]
+    assert mitre.alert_tags("Misc activity") == [] and mitre.alert_tags("") == []
+
+    cfg, db = env
+    jd = fx.make_job(tmp_path / "job")
+    rep = report.build(jd, ioc_store.IOCIndex(db), cfg, {"filename": "t.pcap"})
+    mt = {t["id"]: t for t in mitre.mitre_summary(rep)}
+    assert "TA0011" in mt  # IOC, маячки, невалидный TLS, подозрительный DNS, файл с IOC
+    assert "TA0010" in mt  # крупная выгрузка
+    assert "TA0006" in mt  # учётные данные в открытом виде (FTP)
+    techs = {te["id"] for t in mt.values() for te in t["techs"]}
+    assert {"T1071", "T1041", "T1040", "T1105", "T1571", "T1573", "T1071.004"} <= techs
+    html = render_report(json.loads(json.dumps(rep, default=list)), lang="en")
+    assert "TA0011" in html and "attack.mitre.org/techniques/T1071/" in html
+
+
+def _count_pcap_packets(path: Path) -> int:
+    import struct
+    n = 0
+    with path.open("rb") as fh:
+        magic = fh.read(4)
+        assert magic in (b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\xc3\xd4")
+        fh.read(20)
+        while True:
+            rh = fh.read(16)
+            if len(rh) < 16:
+                break
+            incl = struct.unpack("<IIII", rh)[2]
+            fh.seek(incl, 1)
+            n += 1
+    return n
+
+
+def test_pcapfilter_time_window(env, tmp_path):
+    """Обрезка по времени: classic pcap и pcapng; enqueue записывает фильтр в сводку."""
+    import struct
+    from trafficlens import pcapfilter, worker
+
+    cfg, db = env
+    payload = b"\0" * 20
+    src = tmp_path / "in.pcap"
+    with src.open("wb") as fh:
+        fh.write(struct.pack("<IHHiIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1))
+        for sec in (100, 200, 300):
+            fh.write(struct.pack("<IIII", sec, 0, len(payload), len(payload)) + payload)
+    out = tmp_path / "out.pcap"
+    assert pcapfilter.trim_time(src, out, 150.0, 250.0) == (1, 3)
+    assert _count_pcap_packets(out) == 1
+    assert pcapfilter.trim_time(src, out, None, 250.0) == (2, 3)
+
+    def block(btype, body):
+        pad = ((len(body) + 3) & ~3) - len(body)
+        ln = 12 + len(body) + pad
+        return struct.pack("<II", btype, ln) + body + b"\0" * pad + struct.pack("<I", ln)
+
+    def epb(ts):
+        m = int(ts * 1_000_000)
+        return block(6, struct.pack("<IIIII", 0, m >> 32, m & 0xFFFFFFFF, len(payload), len(payload)) + payload)
+
+    ng = tmp_path / "in.pcapng"
+    ng.write_bytes(block(0x0A0D0D0A, struct.pack("<IHHq", 0x1A2B3C4D, 1, 0, -1))
+                   + block(1, struct.pack("<HHI", 1, 0, 65535))
+                   + epb(100) + block(3, struct.pack("<I", len(payload)) + payload) + epb(200))
+    assert pcapfilter.trim_time(ng, tmp_path / "out.pcapng", 150.0, None) == (1, 3)  # SPB без метки отброшен
+
+    jid = worker.enqueue_file(cfg, db, src, "in.pcap", "upload", move=False, ts_from=150.0, ts_to=350.0)
+    job = db.job(jid)
+    assert job["summary"]["filter"] == {"bpf": "", "from": 150.0, "to": 350.0}
+    assert Path(job["pcap_path"]).stat().st_size == 24 + 2 * (16 + len(payload))  # заголовок + два пакета (200, 300)
+
+    # то же через веб-эндпоинт + валидация окна
+    import io
+    from trafficlens.web import create_app
+    c = create_app(cfg, start_workers=False).test_client()
+    H = {"X-Requested-With": "TrafficLens"}
+    data = src.read_bytes()
+    r = c.post("/api/upload", data={"file": (io.BytesIO(data), "win.pcap"), "t_from": "150", "t_to": "250"},
+               headers=H, content_type="multipart/form-data")
+    assert r.status_code == 200
+    job = db.job(r.json["jobs"][0])
+    assert job["summary"]["filter"]["from"] == 150.0 and job["summary"]["filter"]["to"] == 250.0
+    r = c.post("/api/upload", data={"file": (io.BytesIO(data), "win2.pcap"), "t_from": "300", "t_to": "100"},
+               headers=H, content_type="multipart/form-data")
+    assert r.status_code == 400 and "error" in r.json
+
+
+def test_pcapfilter_bpf(tmp_path):
+    """BPF через tcpdump (пропускается, если tcpdump не установлен)."""
+    import importlib.util
+    import shutil
+
+    if not shutil.which("tcpdump"):
+        pytest.skip("tcpdump не найден")
+    spec = importlib.util.spec_from_file_location("make_test_pcap", Path(__file__).resolve().parents[1] / "tools" / "make_test_pcap.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    src = tmp_path / "bpf.pcap"
+    p = m.Pcap(str(src))
+    p.udp(1000.0, "192.168.1.50", 12345, "192.168.1.1", 53, b"\x00" * 10)
+    p.tcp(1001.0, "192.168.1.50", 40000, "93.184.216.34", 443, 1, 0, 0x02)
+    p.close()
+
+    from trafficlens import pcapfilter
+    out = tmp_path / "only-dns.pcap"
+    desc = pcapfilter.filter_pcap(src, out, bpf="udp port 53")
+    assert desc["bpf"] == "udp port 53"
+    assert _count_pcap_packets(out) == 1
+    with pytest.raises(ValueError):
+        pcapfilter.filter_pcap(src, tmp_path / "bad.pcap", bpf="this is ((broken")

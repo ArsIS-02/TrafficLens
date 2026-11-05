@@ -156,7 +156,9 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     @app.get("/")
     @require_login
     def index():
-        return tpl("index.html", page="jobs", jobs=db.jobs(), capture=worker.capture_status(cfg),
+        q = (request.args.get("q") or "").strip()[:200]
+        jobs = pipeline.search_jobs(cfg, db, q) if q else db.jobs()
+        return tpl("index.html", page="jobs", jobs=jobs, q=q, capture=worker.capture_status(cfg),
                    tools=runner.tool_versions(cfg), max_mb=cfg["max_upload_mb"])
 
     @app.get("/jobs/<job_id>")
@@ -265,6 +267,20 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         files = request.files.getlist("file")
         if not files:
             return jsonify(error=et("err_no_file")), 400
+        bpf = (request.form.get("bpf") or "").strip()[:500]
+
+        def _ts(key: str) -> float | None:
+            v = (request.form.get(key) or "").strip()
+            if not v:
+                return None
+            try:
+                return float(v)
+            except ValueError:
+                return None
+
+        ts_from, ts_to = _ts("t_from"), _ts("t_to")
+        if ts_from is not None and ts_to is not None and ts_from >= ts_to:
+            return jsonify(error=et("err_filter_window")), 400
         ids, errors = [], []
         for f in files:
             name = Path(f.filename or "capture.pcap").name
@@ -278,7 +294,12 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
                 os.unlink(tmp)
                 errors.append(et("err_not_pcap").format(name=name))
                 continue
-            ids.append(worker.enqueue_file(cfg, db, Path(tmp), name, "upload", move=True))
+            try:
+                ids.append(worker.enqueue_file(cfg, db, Path(tmp), name, "upload", move=True,
+                                               bpf=bpf, ts_from=ts_from, ts_to=ts_to))
+            except ValueError as e:
+                Path(tmp).unlink(missing_ok=True)
+                errors.append(et("err_bpf").format(name=name, err=str(e)[:200]))
         return jsonify(ok=bool(ids), jobs=ids, errors=errors), (200 if ids else 400)
 
     @app.get("/api/jobs")

@@ -437,6 +437,18 @@ RU.update({
     "err_bad_ext": "{name}: поддерживаются .pcap, .pcapng, .cap (можно .gz)",
     "err_not_pcap": "{name}: это не похоже на PCAP/PCAPNG",
     "parse_line": "строка {n}: не распознано «{raw}»",
+    "search_jobs_ph": "хост, IOC, имя файла…",
+    "search_found": "Найдено: {n}",
+    "search_reset": "сбросить",
+    "mitre_hint": "тактики и техники, сопоставленные находкам отчёта",
+    "filter_title": "Фильтр PCAP перед анализом",
+    "filter_hint": "BPF-выражение (синтаксис tcpdump) и/или окно времени — в анализ пойдёт только совпадающий трафик.",
+    "filter_bpf_ph": "BPF-фильтр, напр. host 10.0.0.5",
+    "filter_from": "с",
+    "filter_to": "по",
+    "filter_label": "Фильтр при загрузке",
+    "err_bpf": "{name}: фильтр не применён: {err}",
+    "err_filter_window": "неверное окно времени: «с» должно быть раньше «по»",
 })
 
 EN.update({
@@ -697,6 +709,18 @@ EN.update({
     "err_bad_ext": "{name}: supported: .pcap, .pcapng, .cap (.gz allowed)",
     "err_not_pcap": "{name}: does not look like PCAP/PCAPNG",
     "parse_line": "line {n}: not recognized \"{raw}\"",
+    "search_jobs_ph": "host, IOC, filename…",
+    "search_found": "Found: {n}",
+    "search_reset": "reset",
+    "mitre_hint": "tactics and techniques mapped from the report findings",
+    "filter_title": "PCAP filter before analysis",
+    "filter_hint": "BPF expression (tcpdump syntax) and/or a time window — only matching traffic is analysed.",
+    "filter_bpf_ph": "BPF filter, e.g. host 10.0.0.5",
+    "filter_from": "from",
+    "filter_to": "to",
+    "filter_label": "Upload filter",
+    "err_bpf": "{name}: filter not applied: {err}",
+    "err_filter_window": "invalid time window: \"from\" must be earlier than \"to\"",
 })
 
 BUNDLES = {"ru": RU, "en": EN}

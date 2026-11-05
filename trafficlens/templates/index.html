@@ -14,6 +14,15 @@
       <div class="faint" style="margin-top:4px">{{ L.drop_hint.format(mb=max_mb) }}</div>
     </div>
     <input type="file" id="file" multiple hidden accept=".pcap,.pcapng,.cap,.dmp,.gz">
+    <details class="pcap-filter" style="margin-top:10px">
+      <summary class="muted" style="cursor:pointer">{{ L.filter_title }}</summary>
+      <div class="faint" style="margin:6px 0">{{ L.filter_hint }}</div>
+      <input type="text" id="f-bpf" placeholder="{{ L.filter_bpf_ph }}" style="width:100%;font-family:var(--mono)">
+      <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
+        <label class="muted">{{ L.filter_from }} <input type="datetime-local" id="f-from" step="1"></label>
+        <label class="muted">{{ L.filter_to }} <input type="datetime-local" id="f-to" step="1"></label>
+      </div>
+    </details>
     <div class="progress"><div></div></div>
   </section>
   <section class="panel" id="capture-box" data-active="{{ '1' if capture.active else '0' }}">
@@ -37,6 +46,11 @@
 
 <section class="panel flush">
   <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.jobs }}</h2><div class="spacer"></div>
+    {% if q %}<span class="faint" style="align-self:center">{{ L.search_found.format(n=jobs|length) }} · <a href="/">{{ L.search_reset }}</a></span>{% endif %}
+    <form method="get" action="/" style="display:flex;gap:6px;margin:0">
+      <input type="search" name="q" value="{{ q }}" placeholder="{{ L.search_jobs_ph }}" style="margin:0;min-width:220px">
+      <button class="btn small primary" type="submit">{{ L.find }}</button>
+    </form>
     <input type="search" class="filter" data-filter="jobs-table" placeholder="{{ L.filter }}" style="margin:0"></div>
   <div class="table-wrap" style="max-height:none">
   <table id="jobs-table">
