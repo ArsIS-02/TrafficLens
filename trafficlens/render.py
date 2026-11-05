@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment, FileSystemLoader, pass_context, select_autoescape
 
 from .i18n import bundle as i18n_bundle
 
@@ -33,23 +33,24 @@ def fmt_ts(ts, fmt: str = "%d.%m.%Y %H:%M:%S") -> str:
         return "—"
 
 
-def fmt_dur(sec) -> str:
+def fmt_dur(sec, lang: str = "ru") -> str:
     try:
         sec = float(sec or 0)
     except (TypeError, ValueError):
         return "—"
+    u = ("мс", "с", "мин", "ч", " д ") if lang != "en" else ("ms", "s", "min", "h", " d ")
     if sec < 1:
-        return f"{sec * 1000:.0f} мс"
+        return f"{sec * 1000:.0f} {u[0]}"
     if sec < 60:
-        return f"{sec:.1f} с"
+        return f"{sec:.1f} {u[1]}"
     m, s = divmod(int(sec), 60)
     h, m = divmod(m, 60)
     d, h = divmod(h, 24)
     if d:
-        return f"{d} д {h} ч"
+        return f"{d}{u[4]}{h} {u[3]}"
     if h:
-        return f"{h} ч {m} мин"
-    return f"{m} мин {s} с"
+        return f"{h} {u[3]} {m} {u[2]}"
+    return f"{m} {u[2]} {s} {u[1]}"
 
 
 def fmt_int(n) -> str:
@@ -59,7 +60,15 @@ def fmt_int(n) -> str:
         return "—"
 
 
-def fmt_bucket(sec: int) -> str:
+def fmt_bucket(sec: int, lang: str = "ru") -> str:
+    if lang == "en":
+        if sec < 60:
+            return f"{sec} s"
+        if sec < 3600:
+            return f"{sec // 60} min"
+        if sec < 86400:
+            return f"{sec // 3600} h"
+        return f"{sec // 86400} d"
     if sec < 60:
         return f"{sec} с"
     if sec < 3600:
@@ -72,7 +81,9 @@ def fmt_bucket(sec: int) -> str:
 def env() -> Environment:
     e = Environment(loader=FileSystemLoader(str(PKG / "templates")), autoescape=select_autoescape(["html"]),
                     trim_blocks=True, lstrip_blocks=True)
-    e.filters.update(bytes=fmt_bytes, ts=fmt_ts, dur=fmt_dur, int=fmt_int, bucket=fmt_bucket)
+    e.filters.update(bytes=fmt_bytes, ts=fmt_ts, int=fmt_int)
+    e.filters["dur"] = pass_context(lambda ctx, v: fmt_dur(v, ctx.get("lang", "ru")))
+    e.filters["bucket"] = pass_context(lambda ctx, v: fmt_bucket(v, ctx.get("lang", "ru")))
     e.globals["inline_css"] = lambda: (STATIC / "style.css").read_text(encoding="utf-8")
     e.globals["inline_js"] = lambda name: (STATIC / name).read_text(encoding="utf-8")
     e.globals["max"] = max
