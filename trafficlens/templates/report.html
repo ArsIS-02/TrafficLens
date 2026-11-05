@@ -65,7 +65,7 @@
   <div class="verdict {{ v.level }}">
     <div class="icon">{{ '!' if v.level == 'critical' else '?' if v.level == 'suspicious' else '✓' }}</div>
     <div>
-      <div class="title">{{ v.label }}</div>
+      <div class="title">{{ v.label }}{% if v.score is defined and v.score %} · score {{ v.score }}{% endif %}</div>
       {% if v.reasons %}<ul>{% for x in v.reasons %}<li>{{ x }}</li>{% endfor %}</ul>
       {% else %}<div class="muted">Совпадений с базой IOC ({{ r.meta.ioc_count|int }} индикаторов) и срабатываний сигнатур нет.</div>{% endif %}
     </div>
