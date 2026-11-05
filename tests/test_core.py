@@ -88,6 +88,12 @@ def test_report_build(env, tmp_path):
     assert rep["graph"]["nodes"] and rep["graph"]["links"]
     assert "Приоритетные хосты" in html and fx.WS in html
     assert 'id="tab-graph"' in html and 'id="netgraph"' in html
+
+    # старые отчёты (JSON без ключа graph): render_report достраивает граф из connections
+    legacy = json.loads(json.dumps(rep, default=list))
+    del legacy["graph"]
+    html = render_report(legacy)
+    assert legacy["graph"]["links"] and 'id="netgraph"' in html
     t = rep["totals"]
     assert t["files"] == 3 and t["alerts"] == 2 and t["alert_sigs"] == 1
 

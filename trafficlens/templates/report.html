@@ -302,7 +302,7 @@
   <section class="panel">
     <div class="panel-head"><h2>{{ L.graph_title }}</h2><span class="faint">{{ L.graph_hint }}</span></div>
     <svg id="netgraph" class="netgraph" viewBox="0 0 1000 560" role="img" aria-label="{{ L.graph_title }}"></svg>
-    <script type="application/json" id="graph-data">{{ r.graph|tojson }}</script>
+    <script type="application/json" id="graph-data">{{ (r.graph or {"nodes": [], "links": []})|tojson }}</script>
   </section>
 </section>
 
