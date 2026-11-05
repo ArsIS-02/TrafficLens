@@ -68,6 +68,7 @@ podman run --rm -v ~/trafficlens/data:/data:z -v "$PWD":/work:z localhost/traffi
 | [Индикаторы компрометации](docs/iocs.md) | источники, формат своих списков, MISP, OpenCTI, abuse.ch |
 | [Отчёт](docs/report.md) | разделы отчёта, логика итога, эвристики и их настройка |
 | [Решение проблем](docs/troubleshooting.md) | типичные ошибки при установке и анализе |
+| [Roadmap](docs/roadmap.md) | план релизов 0.2.0 / 0.3.0 / 0.4.0 |
 | [Конфигурация](deploy/trafficlens.yaml.example) | пример `trafficlens.yaml` со всеми параметрами |
 
 ## Проверено
