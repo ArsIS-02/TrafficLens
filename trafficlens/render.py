@@ -89,5 +89,46 @@ def get_env() -> Environment:
     return _ENV
 
 
+def _ensure_graph(rep: dict) -> None:
+    """Достраивает граф для отчётов, собранных старыми версиями (в JSON нет ключа graph).
+
+    Источник — сохранённые connections; имена и признаки local/ioc берём из
+    local_hosts и top_external. Для новых отчётов graph уже построен в report.py.
+    """
+    if rep.get("graph") is not None:
+        return
+    names: dict[str, str] = {}
+    locals_: set[str] = set()
+    iocs: set[str] = set()
+    for h in rep.get("local_hosts", []):
+        ip = h.get("ip")
+        if not ip:
+            continue
+        locals_.add(ip)
+        if h.get("name"):
+            names[ip] = h["name"]
+    for e in rep.get("top_external", []):
+        ip = e.get("ip")
+        if not ip:
+            continue
+        if e.get("name"):
+            names[ip] = e["name"]
+        if e.get("ioc"):
+            iocs.add(ip)
+    nodes: dict[str, dict] = {}
+    links = []
+    for c in rep.get("connections", [])[:150]:
+        src, dst = c.get("src"), c.get("dst")
+        if not src or not dst:
+            continue
+        tot = (c.get("ob") or 0) + (c.get("rb") or 0)
+        for ip in (src, dst):
+            n = nodes.setdefault(ip, {"id": ip, "name": names.get(ip, ""), "local": ip in locals_, "ioc": ip in iocs, "bytes": 0})
+            n["bytes"] += tot
+        links.append({"source": src, "target": dst, "bytes": tot, "proto": c.get("proto", ""), "port": c.get("dp"), "ioc": bool(c.get("ioc"))})
+    rep["graph"] = {"nodes": list(nodes.values()), "links": links}
+
+
 def render_report(rep: dict, embedded: bool = False, job: dict | None = None, lang: str = "ru") -> str:
+    _ensure_graph(rep)
     return get_env().get_template("report.html").render(r=rep, embedded=embedded, job=job or {}, lang=lang, L=i18n_bundle(lang))
