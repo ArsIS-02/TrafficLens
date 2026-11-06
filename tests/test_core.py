@@ -742,13 +742,20 @@ def test_kill_chain(env, tmp_path):
     # рабочая станция замечена минимум на трёх этапах цепочки
     multi = {h["ip"]: h["stages"] for h in ch["hosts"]}
     assert fx.WS in multi and len(multi[fx.WS]) >= 3
+    # текстовые цепочки для тикета: хост → домен → IP:порт маячка; файл → хэш
+    texts = [t["text"] for t in ch["tickets"]]
+    assert any("evil-c2.example" in t and "203.0.113.66:8443" in t and fx.WS in t for t in texts), texts
+    assert any("payload.exe" in t and "275a021b" in t for t in texts), texts
 
     c = create_app(cfg, start_workers=False).test_client()
     r = c.get(f"/jobs/{jid}/chain")
     assert r.status_code == 200 and "Цепочка компрометации" in r.text and "Управление (C2)" in r.text
     assert "203.0.113.66" in r.text and "TA0011" in r.text
+    # плашки тактик/техник ведут на attack.mitre.org, цепочка для тикета показана с кнопкой копирования
+    assert "https://attack.mitre.org/tactics/TA0011/" in r.text
+    assert "Цепочки для тикета" in r.text and "evil-c2.example → 203.0.113.66:8443" in r.text
     r = c.get(f"/jobs/{jid}/chain?lang=en")
-    assert "Compromise chain" in r.text and "Exfiltration" in r.text
+    assert "Compromise chain" in r.text and "Exfiltration" in r.text and "Ticket-ready chains" in r.text
     # кнопка перехода есть в веб-отчёте и отсутствует в автономном HTML
     assert f"/jobs/{jid}/chain" in c.get(f"/jobs/{jid}").text
     from trafficlens.render import render_report

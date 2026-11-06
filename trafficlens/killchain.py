@@ -23,7 +23,8 @@ STAGES: list[tuple[str, str]] = [
     ("impact", "TA0040"),     # Impact
 ]
 _TACTIC_STAGE = {tactic: key for key, tactic in STAGES}
-MAX_ITEMS = 50  # доказательств на этап; остальное — в основных вкладках отчёта
+_HASH_TYPES = {"md5", "sha1", "sha256"}
+MAX_TICKETS = 20  # текстовых цепочек на страницу — по самым значимым IOC-хитам
 
 
 def _pair_hosts(pairs: list[str]) -> list[str]:
@@ -38,20 +39,102 @@ def _pair_hosts(pairs: list[str]) -> list[str]:
     return out
 
 
+def _is_ip(s: str) -> bool:
+    import ipaddress
+    try:
+        ipaddress.ip_address(s)
+        return True
+    except ValueError:
+        return False
+
+
+def _ticket_chains(rep: dict) -> list[dict]:
+    """Текстовые цепочки для тикета по значимым IOC-хитам:
+    хост → индикатор → адрес:порт → файл → хэш → источники IOC."""
+    names: dict[str, str] = {}
+    for coll in ("local_hosts", "top_external"):
+        for h in rep.get(coll) or []:
+            if h.get("ip"):
+                names[h["ip"]] = h.get("name", "")
+    local_ips = {h.get("ip") for h in rep.get("local_hosts") or []}
+    prio = {h.get("ip") for h in rep.get("priority_hosts") or []}
+    resolvers = {r.get("ip") for r in (rep.get("dns") or {}).get("resolvers") or []}
+    beacons = (rep.get("findings") or {}).get("beacons") or []
+    files = rep.get("files") or []
+
+    def host_label(ip: str) -> str:
+        return f"{names[ip]} ({ip})" if names.get(ip) else ip
+
+    def port_for(ip: str) -> str:
+        for b in beacons:  # порт маячка к этому адресу — самое показательное
+            if b.get("dst") == ip and b.get("dp"):
+                return str(b["dp"])
+        return ""
+
+    def file_near(ips: set[str]):
+        return next((x for x in files if x.get("ioc") and ({x.get("sender"), x.get("receiver")} & ips)), None)
+
+    out = []
+    for h in (rep.get("ioc_hits") or [])[:MAX_TICKETS]:
+        val, typ = h.get("value", ""), h.get("type", "")
+        hosts_all = h.get("hosts") or []
+        # локальные хосты, кроме DNS-резолверов (это транзит, а не участники), приоритетные — первыми
+        hosts = sorted((ip for ip in hosts_all if ip in local_ips and ip not in resolvers),
+                       key=lambda ip: (ip not in prio, ip)) or hosts_all[:2]
+        ioc_port = next((str(e["port"]) for e in (h.get("sources") or []) if e.get("port")), "")
+        srcs = sorted({e.get("source", "") for e in (h.get("sources") or []) if e.get("source")})
+
+        parts: list[str] = []
+        if hosts:
+            parts.append(", ".join(host_label(ip) for ip in hosts[:3]))
+        if typ in _HASH_TYPES:
+            fl = next((x for x in files if val in (x.get("sha256"), x.get("sha1"), x.get("md5"))), None)
+            if fl and fl.get("filename"):
+                parts.append(fl["filename"])
+            parts.append(f"{typ}:{val[:16]}…")
+        elif typ == "ja3":
+            parts.append(f"ja3:{val[:16]}…")
+            fl = file_near(set(hosts_all))
+            if fl:
+                parts.append(fl.get("filename") or (fl.get("sha256") or "")[:16] + "…")
+        else:
+            port = port_for(val) or ioc_port
+            parts.append(f"{val}:{port}" if typ == "ip" and port else val)
+            # цели: наблюдаемые адреса (без поддоменов самого индикатора) + внешние IP из контекстов
+            raw: list[str] = []
+            for o in h.get("observed") or []:
+                if o != val and not o.endswith("." + val) and o not in raw:
+                    raw.append(o)
+            for ip in hosts_all:
+                if ip not in local_ips and ip != val and _is_ip(ip) and ip not in raw:
+                    raw.append(ip)
+            tgts = []
+            for t in raw[:3]:
+                p = port_for(t)
+                tgts.append(f"{t}:{p}" if p else t)
+            if tgts:
+                parts.append(", ".join(tgts))
+            fl = file_near(set(raw) | set(hosts_all))
+            if fl:
+                parts.append(fl.get("filename") or (fl.get("sha256") or "")[:16] + "…")
+        if srcs:
+            parts.append(", ".join(srcs))
+        out.append({"text": " → ".join(p for p in parts if p),
+                    "value": val, "conf": h.get("max_conf") or 0, "count": h.get("count") or 0})
+    return out
+
+
 def build(rep: dict) -> dict:
     """{stages: [...], hosts: [...], covered: int} по данным отчёта."""
     stages: dict[str, dict] = {
         key: {"key": key, "tactic": tactic, "tactic_name": TACTICS[tactic],
-              "events": [], "hosts": [], "techs": {}, "first": 0.0, "last": 0.0, "truncated": False}
+              "events": [], "hosts": [], "techs": {}, "first": 0.0, "last": 0.0}
         for key, tactic in STAGES
     }
 
     def add(stage_key: str, ts: float, kind: str, title: str, detail: str = "",
             hosts=(), ioc: bool = False, tech: str = "") -> None:
         st = stages[stage_key]
-        if len(st["events"]) >= MAX_ITEMS:
-            st["truncated"] = True
-            return
         st["events"].append({"ts": ts or 0, "kind": kind, "title": title,
                             "detail": detail, "hosts": list(hosts), "ioc": ioc})
         for h in hosts:
@@ -106,7 +189,7 @@ def build(rep: dict) -> dict:
         st["events"].sort(key=lambda e: (not e["ts"], e["ts"]))
         tss = [e["ts"] for e in st["events"] if e["ts"]]
         st["first"], st["last"] = (min(tss), max(tss)) if tss else (0.0, 0.0)
-        st["count"] = len(st["events"]) + (1 if st["truncated"] else 0)
+        st["count"] = len(st["events"])
         st["techs"] = sorted(st["techs"], key=lambda t: -st["techs"][t])
         for h in st["hosts"]:
             host_stages.setdefault(h, []).append(st["key"])
@@ -117,4 +200,4 @@ def build(rep: dict) -> dict:
 
     return {"stages": list(stages.values()),
             "covered": sum(1 for st in stages.values() if st["events"]),
-            "hosts": multi}
+            "hosts": multi, "tickets": _ticket_chains(rep)}

@@ -238,7 +238,7 @@
         <td data-v="{{ a.severity }}"><span class="badge {{ 'crit' if a.severity == 1 else 'warn' if a.severity == 2 else '' }}">{{ a.severity|lsev(a.sev_label) }}</span></td>
         <td>{{ a.signature }}<div class="faint">sid {{ a.sid }}</div></td>
         <td>{{ a.category }}</td>
-        <td class="nowrap">{% for ta, tech in mitre_alert(a.category) %}<span class="badge accent" title="{{ mitre_tactics.get(ta, ta) }} · {{ mitre_techniques.get(tech, tech) }}">{{ tech }}</span> {% endfor %}</td>
+        <td class="nowrap">{% for ta, tech in mitre_alert(a.category) %}<a class="badge accent" href="https://attack.mitre.org/techniques/{{ tech.replace('.', '/') }}/" target="_blank" rel="noopener" title="{{ mitre_tactics.get(ta, ta) }} · {{ mitre_techniques.get(tech, tech) }}" style="text-decoration:none">{{ tech }}</a> {% endfor %}</td>
         <td class="num">{{ a.count }}</td>
         <td class="mono">{% for p in a.pairs %}<div>{{ p }}</div>{% endfor %}</td>
         <td class="nowrap">{{ a.first|ts('%d.%m %H:%M:%S') }}<div class="faint">{{ a.last|ts('%d.%m %H:%M:%S') }}</div></td>
