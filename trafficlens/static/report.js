@@ -180,6 +180,14 @@
     });
     place(locals, 130); place(externals, 850);
     function el(name, attrs) { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+
+    // все содержимое — в viewport-группе: pan/zoom через transform
+    const view = { x: 0, y: 0, k: 1 };
+    const vp = el("g", { id: "graph-vp" });
+    const applyView = () => vp.setAttribute("transform", `translate(${view.x} ${view.y}) scale(${view.k})`);
+    svg.appendChild(vp);
+    applyView();
+
     const edges = [];
     (g.links || []).forEach(l => {
       const a = nodes.get(l.source), b = nodes.get(l.target);
@@ -187,7 +195,7 @@
       const w = 1 + Math.sqrt((l.bytes || 0) / maxB) * 7;
       const line = el("line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: "edge" + (l.ioc ? " ioc" : ""), "stroke-width": w.toFixed(1) });
       line.appendChild(el("title", {})).textContent = `${l.source} → ${l.target}:${l.port || ""} ${l.proto || ""} ${l.bytes} B`;
-      svg.appendChild(line);
+      vp.appendChild(line);
       edges.push({ line, s: l.source, t: l.target });
     });
     nodes.forEach(n => {
@@ -199,45 +207,79 @@
       const label = el("text", { x: n.local ? 14 : -14, y: 4, "text-anchor": n.local ? "start" : "end" });
       label.textContent = n.name || n.id;
       grp.appendChild(label);
-      svg.appendChild(grp);
+      vp.appendChild(grp);
       n.grp = grp;
     });
     if (!nodes.size) {
       const t = el("text", { x: 500, y: 280, "text-anchor": "middle" });
       t.textContent = "—";
-      svg.appendChild(t);
-      return;
+      vp.appendChild(t);
     }
-    // перетаскивание узлов
-    let drag = null;
-    const toSvg = e => {
+
+    // координаты курсора в системе графа (с учётом pan/zoom)
+    const toGraph = e => {
       const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
-      const m = svg.getScreenCTM();
+      const m = vp.getScreenCTM();
       return m ? pt.matrixTransform(m.inverse()) : pt;
     };
+    const zoomAt = (p, factor) => {
+      const k2 = Math.min(8, Math.max(0.25, view.k * factor));
+      view.x += (view.k - k2) * p.x;
+      view.y += (view.k - k2) * p.y;
+      view.k = k2;
+      applyView();
+    };
+    svg.addEventListener("wheel", e => {
+      e.preventDefault();
+      zoomAt(toGraph(e), e.deltaY < 0 ? 1.2 : 1 / 1.2);
+    }, { passive: false });
+    // кнопки +/−/сброс в шапке панели (шаблон report.html)
+    document.querySelectorAll("[data-gzoom]").forEach(b => b.addEventListener("click", () => {
+      const z = b.dataset.gzoom;
+      if (z === "0") { view.x = 0; view.y = 0; view.k = 1; applyView(); return; }
+      zoomAt({ x: 500, y: 280 }, z === "+" ? 1.4 : 1 / 1.4);
+    }));
+
+    // перетаскивание узлов и панорама фона
+    let drag = null, pan = null;
     svg.addEventListener("pointerdown", e => {
       const grp = e.target.closest(".gnode");
-      if (!grp) return;
-      const n = nodes.get(grp.dataset.id);
-      if (!n) return;
-      e.preventDefault();
-      const p = toSvg(e);
-      drag = { n, dx: p.x - n.x, dy: p.y - n.y };
+      if (grp) {
+        const n = nodes.get(grp.dataset.id);
+        if (!n) return;
+        e.preventDefault();
+        const p = toGraph(e);
+        drag = { n, dx: p.x - n.x, dy: p.y - n.y };
+        grp.classList.add("drag");
+      } else {
+        pan = { sx: e.clientX, sy: e.clientY };
+        svg.classList.add("panning");
+      }
       try { svg.setPointerCapture(e.pointerId); } catch (err) { }
-      grp.classList.add("drag");
     });
     svg.addEventListener("pointermove", e => {
-      if (!drag) return;
-      const p = toSvg(e);
-      drag.n.x = Math.max(30, Math.min(970, p.x - drag.dx));
-      drag.n.y = Math.max(20, Math.min(540, p.y - drag.dy));
-      drag.n.grp.setAttribute("transform", `translate(${drag.n.x} ${drag.n.y})`);
-      edges.forEach(ed => {
-        if (ed.s === drag.n.id) { ed.line.setAttribute("x1", drag.n.x); ed.line.setAttribute("y1", drag.n.y); }
-        if (ed.t === drag.n.id) { ed.line.setAttribute("x2", drag.n.x); ed.line.setAttribute("y2", drag.n.y); }
-      });
+      if (drag) {
+        const p = toGraph(e);
+        drag.n.x = Math.max(30, Math.min(970, p.x - drag.dx));
+        drag.n.y = Math.max(20, Math.min(540, p.y - drag.dy));
+        drag.n.grp.setAttribute("transform", `translate(${drag.n.x} ${drag.n.y})`);
+        edges.forEach(ed => {
+          if (ed.s === drag.n.id) { ed.line.setAttribute("x1", drag.n.x); ed.line.setAttribute("y1", drag.n.y); }
+          if (ed.t === drag.n.id) { ed.line.setAttribute("x2", drag.n.x); ed.line.setAttribute("y2", drag.n.y); }
+        });
+      } else if (pan) {
+        const m = vp.getScreenCTM();
+        const k = (m && m.a) || 1;  // экранных пикселей на единицу графа
+        view.x += (e.clientX - pan.sx) / k;
+        view.y += (e.clientY - pan.sy) / k;
+        pan.sx = e.clientX; pan.sy = e.clientY;
+        applyView();
+      }
     });
-    const drop = () => { if (drag) { drag.n.grp.classList.remove("drag"); drag = null; } };
+    const drop = () => {
+      if (drag) { drag.n.grp.classList.remove("drag"); drag = null; }
+      if (pan) { pan = null; svg.classList.remove("panning"); }
+    };
     svg.addEventListener("pointerup", drop);
     svg.addEventListener("pointercancel", drop);
   }

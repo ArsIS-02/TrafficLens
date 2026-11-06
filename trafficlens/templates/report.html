@@ -96,7 +96,7 @@
 
   {% if r.priority_hosts %}
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ph_title }}</h2><span class="faint">{{ L.ph_hint }}</span></div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ph_title }}</h2><span class="faint">{{ L.ph_hint }}</span><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/hosts.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}</div>
     <div class="table-wrap"><table>
       <thead><tr><th>{{ L.col_host }}</th><th class="num" data-sort="num">Risk score</th><th>{{ L.col_reasons }}</th><th>{{ L.col_indicators }}</th><th>{{ L.col_external }}</th></tr></thead>
       <tbody>
@@ -205,7 +205,7 @@
 <!-- ============================================================ IOC -->
 <section class="tabpane" id="tab-ioc">
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ioc_hits_title }}</h2><div class="spacer"></div>{{ filter('t-ioc') }}</div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ioc_hits_title }}</h2><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/iocs.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-ioc') }}</div>
     <div class="table-wrap"><table id="t-ioc">
       <thead><tr><th data-sort="text">{{ L.col_type }}</th><th data-sort="text">{{ L.col_indicator }}</th><th>{{ L.col_observed }}</th><th>{{ L.col_context }}</th><th>{{ L.col_sources }}</th>
         <th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_first_last }}</th><th>{{ L.col_hosts }}</th><th></th></tr></thead>
@@ -239,7 +239,7 @@
 <!-- ============================================================ SURICATA -->
 <section class="tabpane" id="tab-alerts">
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.alerts_title }}</h2><div class="spacer"></div>{{ filter('t-alerts') }}</div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.alerts_title }}</h2><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/alerts.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-alerts') }}</div>
     <div class="table-wrap"><table id="t-alerts">
       <thead><tr><th data-sort="num">{{ L.col_severity }}</th><th data-sort="text">{{ L.col_signature }}</th><th data-sort="text">{{ L.col_category }}</th><th>MITRE</th><th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_directions }}</th><th>{{ L.col_period }}</th><th></th></tr></thead>
       <tbody>
@@ -261,7 +261,7 @@
 <!-- ============================================================ ФАЙЛЫ -->
 <section class="tabpane" id="tab-files">
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.files_title }}</h2><span class="faint">{{ L.total_lbl }} {{ t.files }}{% if t.files > r.files|length %}, {{ L.shown_lbl }} {{ r.files|length }}{% endif %}</span><div class="spacer"></div>{{ filter('t-files') }}</div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.files_title }}</h2><span class="faint">{{ L.total_lbl }} {{ t.files }}{% if t.files > r.files|length %}, {{ L.shown_lbl }} {{ r.files|length }}{% endif %}</span><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/files.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-files') }}</div>
     <div class="table-wrap"><table id="t-files">
       <thead><tr><th data-sort="text">{{ L.col_time }}</th><th data-sort="text">{{ L.col_proto }}</th><th>{{ L.col_sender_receiver }}</th><th data-sort="text">{{ L.col_direction }}</th><th data-sort="text">{{ L.col_name_url }}</th>
         <th data-sort="text">{{ L.col_type }}</th><th class="num" data-sort="num">{{ L.col_size }}</th><th>{{ L.col_hashes }}</th><th></th><th></th></tr></thead>
@@ -333,7 +333,13 @@
 <!-- ============================================================ ГРАФ -->
 <section class="tabpane" id="tab-graph">
   <section class="panel">
-    <div class="panel-head"><h2>{{ L.graph_title }}</h2><span class="faint">{{ L.graph_hint }}</span></div>
+    <div class="panel-head"><h2>{{ L.graph_title }}</h2><span class="faint">{{ L.graph_hint }}</span><div class="spacer"></div>
+      <div class="gzoom">
+        <button type="button" class="btn small" data-gzoom="-" title="{{ L.graph_zoom_out }}">−</button>
+        <button type="button" class="btn small" data-gzoom="0" title="{{ L.graph_zoom_reset }}">1:1</button>
+        <button type="button" class="btn small" data-gzoom="+" title="{{ L.graph_zoom_in }}">+</button>
+      </div>
+    </div>
     <svg id="netgraph" class="netgraph" viewBox="0 0 1000 560" role="img" aria-label="{{ L.graph_title }}"></svg>
     <script type="application/json" id="graph-data">{{ (r.graph or {"nodes": [], "links": []})|tojson }}</script>
   </section>

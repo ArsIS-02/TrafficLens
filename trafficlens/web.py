@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, session, url_for
 
-from . import feeds, hostcard, ioc_store, killchain, markup, pipeline, render, runner, worker
+from . import exports, feeds, hostcard, ioc_store, killchain, markup, pipeline, render, runner, worker
 from .config import Config
 from .config import load as load_config
 from .db import DB
@@ -226,6 +226,22 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
             return Response("reportlab не установлен", status=500)
         return send_file(io.BytesIO(data), mimetype="application/pdf", as_attachment=True,
                          download_name=f"trafficlens-{job_id}.pdf")
+
+    @app.get("/jobs/<job_id>/export/<what>.csv")
+    @require_login
+    def job_export_csv(job_id, what):
+        get_job(job_id)
+        if what not in exports.KINDS:
+            abort(404)
+        p = pipeline.job_dir(cfg, job_id) / "report.json"
+        if not p.exists():
+            abort(404)
+        rep = json.loads(p.read_text(encoding="utf-8"))
+        data = exports.build_csv(rep, what, lang=client_lang())
+        if data is None:
+            abort(404)
+        return send_file(io.BytesIO(data), mimetype="text/csv; charset=utf-8", as_attachment=True,
+                         download_name=f"trafficlens-{job_id}-{what}.csv")
 
     @app.get("/jobs/<job_id>/log")
     @require_login
