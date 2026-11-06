@@ -88,7 +88,11 @@ RU = {
     "tab_graph": "Граф",
     "updated": "Обновлены",
     "graph_title": "Сетевые обращения как граф",
-    "graph_hint": "Локальные хосты — слева, внешние адреса — справа. Толщина линии зависит от объёма, узлы можно перетаскивать.",
+    "graph_hint": "Локальные хосты — слева, внешние адреса — справа. Толщина линии зависит от объёма. Узлы перетаскиваются, колесо мыши — масштаб, фон — прокрутка.",
+    "graph_zoom_in": "Приблизить",
+    "graph_zoom_out": "Отдалить",
+    "graph_zoom_reset": "Сбросить масштаб",
+    "dl_csv_title": "Скачать CSV (UTF-8, открывается в Excel/LibreOffice)",
 }
 
 EN = {
@@ -175,7 +179,11 @@ EN = {
     "tab_graph": "Graph",
     "updated": "Updated",
     "graph_title": "Network connections as a graph",
-    "graph_hint": "Local hosts are on the left, external addresses on the right. Edge width depends on bytes; nodes can be dragged.",
+    "graph_hint": "Local hosts are on the left, external addresses on the right. Edge width depends on bytes. Drag nodes to move them, mouse wheel zooms, drag the background to pan.",
+    "graph_zoom_in": "Zoom in",
+    "graph_zoom_out": "Zoom out",
+    "graph_zoom_reset": "Reset zoom",
+    "dl_csv_title": "Download CSV (UTF-8, opens in Excel/LibreOffice)",
 }
 
 RU.update({

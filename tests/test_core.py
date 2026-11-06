@@ -817,3 +817,47 @@ def test_analyst_markup(env, tmp_path):
     # валидация параметров
     assert c.post(f"/api/jobs/{jid}/marks", json={"kind": "nope", "key": "x", "status": "confirmed"}, headers=H).status_code == 400
     assert c.post("/api/allowlist", json={"kind": "ioc", "key": "", "action": "add"}, headers=H).status_code == 400
+
+
+def test_csv_export(env, tmp_path):
+    """CSV-экспорт: 4 раздела, BOM (utf-8-sig) для Excel, значения из фикстуры, 404 на мусор."""
+    import codecs
+    import csv as csvmod
+    import io as iomod
+
+    from trafficlens import worker
+    from trafficlens.web import create_app
+
+    cfg, db = env
+    pcap = tmp_path / "x.pcap"
+    pcap.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid = worker.enqueue_file(cfg, db, pcap, "x.pcap", "upload", move=False)
+    fx.make_job(pipeline.job_dir(cfg, jid))
+    pipeline.rematch(cfg, db, jid)
+    db.update_job(jid, status="done")
+
+    c = create_app(cfg, start_workers=False).test_client()
+    for what, needles in (
+        ("iocs", ["type,value", "evil-c2.example", "203.0.113.66"]),
+        ("files", ["filename", "payload.exe", "275a021b"]),
+        ("alerts", ["sid,signature", "2014819"]),
+        ("hosts", ["ip,name", fx.WS]),
+    ):
+        r = c.get(f"/jobs/{jid}/export/{what}.csv")
+        assert r.status_code == 200, what
+        assert r.data.startswith(codecs.BOM_UTF8), what  # открывается в Excel двойным кликом
+        assert "attachment" in r.headers.get("Content-Disposition", "")
+        text = r.data.decode("utf-8-sig")
+        for n in needles:
+            assert n in text, (what, n)
+        rows = list(csvmod.reader(iomod.StringIO(text)))
+        assert len(rows) >= 2 and rows[0]  # заголовок + данные, парсится штатным csv
+    # RU/EN локализация значений и неизвестный раздел -> 404
+    assert "высокая" in c.get(f"/jobs/{jid}/export/alerts.csv").data.decode("utf-8-sig")
+    assert "high" in c.get(f"/jobs/{jid}/export/alerts.csv?lang=en").data.decode("utf-8-sig")
+    assert c.get(f"/jobs/{jid}/export/nope.csv").status_code == 404
+    # кнопки CSV видны в веб-отчёте и отсутствуют в автономном HTML
+    assert f"/jobs/{jid}/export/iocs.csv" in c.get(f"/jobs/{jid}").text
+    from trafficlens.render import render_report
+    rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
+    assert "export/" not in render_report(rep, embedded=False)
