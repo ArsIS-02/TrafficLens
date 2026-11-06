@@ -98,7 +98,7 @@
   {% if r.priority_hosts %}
   <section class="panel flush">
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ph_title }}</h2><span class="faint">{{ L.ph_hint }}</span><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/hosts.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}</div>
-    <div class="table-wrap"><table>
+    <div class="table-wrap"><table id="t-hosts">
       <thead><tr><th>{{ L.col_host }}</th><th class="num" data-sort="num">Risk score</th><th>{{ L.col_reasons }}</th><th>{{ L.col_indicators }}</th><th>{{ L.col_external }}</th></tr></thead>
       <tbody>
       {% for h in r.priority_hosts[:10] %}<tr class="{{ 'hl' if h.level == 'high' }}">
