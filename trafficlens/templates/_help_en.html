@@ -18,6 +18,7 @@
   <li>Upload zone: drag a PCAP/PCAPNG file here or click to browse. Analysis starts automatically.</li>
   <li>PCAP filter (expands below the upload zone): a BPF expression (tcpdump syntax) and/or a time window — only matching traffic is analyzed, which speeds up large captures considerably.</li>
   <li>Job search: matches the file name and, for finished analyses, also hosts, IOCs, transferred files and DNS names from the report.</li>
+  <li>Job list filters: verdict (critical/suspicious/clean), source (upload/capture) and creation date range. They combine with the search; the “Reset” link next to the match counter clears them.</li>
   <li>Job list with verdicts: <b>critical</b> / <b>suspicious</b> / <b>clean</b>. Click a row to open the report.</li>
 </ol>
 </section>
@@ -38,14 +39,27 @@
 <ol>
   <li><b>Priority hosts</b> — local hosts ranked by total risk. Start at the top. The CSV button exports the table (opens in Excel/LibreOffice).</li>
   <li>Risk reasons with confidence badges and the indicators involved.</li>
-  <li>The ▸ icon next to an address opens its <b>host card</b>: a timeline of all events, contacts, files.</li>
+  <li>The ▸ icon next to an address opens its <b>host card</b> — see section 5.</li>
   <li>MITRE ATT&CK panel: tactics and techniques; links lead to attack.mitre.org with a description of each technique.</li>
 </ol>
 </section>
 
 <section>
-<h2>5. Indicators of compromise (IOC tab)</h2>
-<img src="/static/help/en/05-report-ioc.png" alt="IOC tab">
+<h2>5. Host card</h2>
+<img src="/static/help/en/05-host.png" alt="Host card">
+<p>The card gathers everything known about a single address (local or external) from the job's already parsed logs.</p>
+<ol>
+  <li>Risk score and its reasons with confidence badges — the higher, the sooner the host deserves attention.</li>
+  <li>KPIs: connections, sent/received bytes, IOC hits, transferred files.</li>
+  <li>The ↗ buttons jump to the matching report tab with the filter already applied for this address or indicator (IOCs, contacts, files) — no need to look up the same host in the tables by hand.</li>
+  <li>Timeline of all events involving the host: DNS, TLS, HTTP, signatures, notices, beacons, uploads, cleartext, invalid certificates. Rows with IOCs are highlighted.</li>
+  <li>Contacts: who the host talked to, volumes, ports; IOC addresses are flagged. Below — the transferred files table with hashes.</li>
+</ol>
+</section>
+
+<section>
+<h2>6. Indicators of compromise (IOC tab)</h2>
+<img src="/static/help/en/06-report-ioc.png" alt="IOC tab">
 <ol>
   <li>All matches against IOC feeds: type, value, sources, confidence, observation contexts, hosts.</li>
   <li>Table filter (substring). Most report tables have the same filter.</li>
@@ -56,8 +70,8 @@
 </section>
 
 <section>
-<h2>6. Network connections graph</h2>
-<img src="/static/help/en/06-report-graph.png" alt="Graph">
+<h2>7. Network connections graph</h2>
+<img src="/static/help/en/07-report-graph.png" alt="Graph">
 <ol>
   <li>Local hosts on the left, external addresses on the right; IOC addresses are highlighted in red. Edge width depends on traffic volume.</li>
   <li>Zoom: mouse wheel (zooms to the cursor) or the −/⟲/+ buttons; drag the background to pan, drag nodes to untangle edges.</li>
@@ -65,8 +79,8 @@
 </section>
 
 <section>
-<h2>7. Compromise chain</h2>
-<img src="/static/help/en/07-chain.png" alt="Compromise chain">
+<h2>8. Compromise chain</h2>
+<img src="/static/help/en/08-chain.png" alt="Compromise chain">
 <ol>
   <li>Findings laid out across MITRE ATT&CK attack stages in chronological order: recon → initial access → … → exfiltration → impact. Hosts seen on multiple stages are grouped in a separate block.</li>
   <li><b>Ticket-ready chains</b>: prepared lines “host → indicator → address:port → file → hash → IOC sources” with a copy button — paste them into a ticket or an e-mail as is.</li>
@@ -74,8 +88,8 @@
 </section>
 
 <section>
-<h2>8. Indicators and rules</h2>
-<img src="/static/help/en/08-iocs.png" alt="Indicators and rules">
+<h2>9. Indicators and rules</h2>
+<img src="/static/help/en/09-iocs.png" alt="Indicators and rules">
 <ol>
   <li>Update IOC feeds (abuse.ch URLhaus/ThreatFox/Feodo/MalwareBazaar, MISP, OpenCTI) and Suricata rules (ET Open) with one button. The automatic update schedule is set in the config.</li>
   <li>Additional rule sources: your own rule-set URLs (ET Pro, abuse.ch SSLBL, internal .rules).</li>
