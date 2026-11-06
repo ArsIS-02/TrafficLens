@@ -72,6 +72,9 @@ window.TL = (function () {
       } else if (a === "rulesrc-del") {
         if (!await confirm(tr("del_src_confirm", { name: b.dataset.url }), { danger: true, ok: tr("delete") })) return;
         await api("/api/rules/sources/delete", { body: { url: b.dataset.url } }); location.reload();
+      } else if (a === "allow-del") {
+        await api("/api/allowlist", { body: { kind: b.dataset.kind, key: b.dataset.key, action: "del" } });
+        b.closest(".ioc-src")?.remove();
       } else if (a === "logout") {
         await api("/logout"); location.href = "/login";
       }

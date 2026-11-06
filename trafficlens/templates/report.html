@@ -15,6 +15,14 @@
 {% macro filter(id) %}<input type="search" class="filter" data-filter="{{ id }}" placeholder="{{ L.filter_table }}">{% endmacro %}
 {% macro empty(cols, text=None) %}<tr><td colspan="{{ cols }}" class="empty">{{ text or L.no_data }}</td></tr>{% endmacro %}
 {% macro tabbadge(n, cls='') %}{% if n %}<span class="badge {{ cls }}">{{ n }}</span>{% endif %}{% endmacro %}
+{% macro markedcls(it) %}{{ 'marked-fp' if it.status == 'false_positive' else 'marked-ig' if it.status == 'ignored' else '' }}{% endmacro %}
+{% macro markcell(kind, key, it) -%}
+<td class="markcell">
+  {%- if it.status %}<span class="badge {{ 'ok' if it.status == 'confirmed' else 'warn' if it.status == 'false_positive' else '' }}" data-mstatus-badge="1"{% if it.status_note %} title="{{ it.status_note }}"{% endif %}>{{ L.get('mark_' ~ it.status, it.status) }}</span>{% endif -%}
+  {%- if it.wl %}<span class="badge accent" data-mwl-badge="1" title="{{ L.mark_wl_title }}">WL</span>{% endif -%}
+  {%- if embedded and job.id %}<button type="button" class="markbtn" data-mkind="{{ kind }}" data-mkey="{{ key }}" data-mstatus="{{ it.status or 'new' }}" data-mwl="{{ '1' if it.wl else '0' }}" title="{{ L.mark_menu }}">⋯</button>{% endif -%}
+</td>
+{%- endmacro %}
 {% macro barchart(values, cls='') -%}
 {% set mx = (values|max) if values else 0 %}
 {% set n = values|length %}
@@ -22,7 +30,7 @@
 {% for v in values %}{% if v and mx %}{% set h = (v / mx * 98) if v else 0 %}<rect class="{{ cls }}" x="{{ loop.index0 * 10 + 1 }}" y="{{ 100 - h }}" width="8" height="{{ h }}"><title>{{ v }}</title></rect>{% endif %}{% endfor %}
 </svg>
 {%- endmacro %}
-<body class="{{ '' if embedded else 'standalone' }}">
+<body class="{{ '' if embedded else 'standalone' }}"{% if embedded %} data-job="{{ job.id }}"{% endif %}>
 {% if embedded %}{% set page = 'jobs' %}{% include "_topbar.html" %}{% endif %}
 <main class="wrap">
 
@@ -200,9 +208,9 @@
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ioc_hits_title }}</h2><div class="spacer"></div>{{ filter('t-ioc') }}</div>
     <div class="table-wrap"><table id="t-ioc">
       <thead><tr><th data-sort="text">{{ L.col_type }}</th><th data-sort="text">{{ L.col_indicator }}</th><th>{{ L.col_observed }}</th><th>{{ L.col_context }}</th><th>{{ L.col_sources }}</th>
-        <th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_first_last }}</th><th>{{ L.col_hosts }}</th></tr></thead>
+        <th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_first_last }}</th><th>{{ L.col_hosts }}</th><th></th></tr></thead>
       <tbody>
-      {% for h in r.ioc_hits %}<tr class="hl">
+      {% for h in r.ioc_hits %}<tr class="hl {{ markedcls(h) }}">
         <td>{{ h.type|lioc(h.type_label) }}</td>
         <td class="break"><span class="mono copy">{{ h.value }}</span>{% if h.port_match %} <span class="badge crit" title="{{ L.port_match_title }}">{{ L.port_match }}</span>{% endif %}
           {% if h.names %}<div class="faint">{{ h.names|join(', ') }}</div>{% endif %}</td>
@@ -212,7 +220,8 @@
         <td class="num">{{ h.count }}</td>
         <td class="nowrap">{{ h.first|ts('%d.%m %H:%M:%S') }}<div class="faint">{{ h.last|ts('%d.%m %H:%M:%S') }}</div></td>
         <td class="mono">{{ h.hosts[:6]|join(', ') }}</td>
-      </tr>{% else %}{{ empty(8, L.no_ioc_hits ~ ' (' ~ (r.meta.ioc_count|int) ~ ' ' ~ L.indicators_n ~ ')') }}{% endfor %}
+        {{ markcell('ioc', h.value, h) }}
+      </tr>{% else %}{{ empty(9, L.no_ioc_hits ~ ' (' ~ (r.meta.ioc_count|int) ~ ' ' ~ L.indicators_n ~ ')') }}{% endfor %}
       </tbody>
     </table></div>
   </section>
@@ -232,9 +241,9 @@
   <section class="panel flush">
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.alerts_title }}</h2><div class="spacer"></div>{{ filter('t-alerts') }}</div>
     <div class="table-wrap"><table id="t-alerts">
-      <thead><tr><th data-sort="num">{{ L.col_severity }}</th><th data-sort="text">{{ L.col_signature }}</th><th data-sort="text">{{ L.col_category }}</th><th>MITRE</th><th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_directions }}</th><th>{{ L.col_period }}</th></tr></thead>
+      <thead><tr><th data-sort="num">{{ L.col_severity }}</th><th data-sort="text">{{ L.col_signature }}</th><th data-sort="text">{{ L.col_category }}</th><th>MITRE</th><th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_directions }}</th><th>{{ L.col_period }}</th><th></th></tr></thead>
       <tbody>
-      {% for a in r.alerts %}<tr class="{{ 'hl' if a.severity == 1 }}">
+      {% for a in r.alerts %}<tr class="{{ 'hl' if a.severity == 1 }} {{ markedcls(a) }}">
         <td data-v="{{ a.severity }}"><span class="badge {{ 'crit' if a.severity == 1 else 'warn' if a.severity == 2 else '' }}">{{ a.severity|lsev(a.sev_label) }}</span></td>
         <td>{{ a.signature }}<div class="faint">sid {{ a.sid }}</div></td>
         <td>{{ a.category }}</td>
@@ -242,7 +251,8 @@
         <td class="num">{{ a.count }}</td>
         <td class="mono">{% for p in a.pairs %}<div>{{ p }}</div>{% endfor %}</td>
         <td class="nowrap">{{ a.first|ts('%d.%m %H:%M:%S') }}<div class="faint">{{ a.last|ts('%d.%m %H:%M:%S') }}</div></td>
-      </tr>{% else %}{% set sm = r.meta.suricata or {} %}{{ empty(7, L.no_alerts if sm.status == 'ok' else (L.get('suri_warn_' ~ (sm.status or ''), '') or sm.warning or L.suri_not_ran)) }}{% endfor %}
+        {{ markcell('alert', a.sid, a) }}
+      </tr>{% else %}{% set sm = r.meta.suricata or {} %}{{ empty(8, L.no_alerts if sm.status == 'ok' else (L.get('suri_warn_' ~ (sm.status or ''), '') or sm.warning or L.suri_not_ran)) }}{% endfor %}
       </tbody>
     </table></div>
   </section>
@@ -254,9 +264,9 @@
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.files_title }}</h2><span class="faint">{{ L.total_lbl }} {{ t.files }}{% if t.files > r.files|length %}, {{ L.shown_lbl }} {{ r.files|length }}{% endif %}</span><div class="spacer"></div>{{ filter('t-files') }}</div>
     <div class="table-wrap"><table id="t-files">
       <thead><tr><th data-sort="text">{{ L.col_time }}</th><th data-sort="text">{{ L.col_proto }}</th><th>{{ L.col_sender_receiver }}</th><th data-sort="text">{{ L.col_direction }}</th><th data-sort="text">{{ L.col_name_url }}</th>
-        <th data-sort="text">{{ L.col_type }}</th><th class="num" data-sort="num">{{ L.col_size }}</th><th>{{ L.col_hashes }}</th><th></th></tr></thead>
+        <th data-sort="text">{{ L.col_type }}</th><th class="num" data-sort="num">{{ L.col_size }}</th><th>{{ L.col_hashes }}</th><th></th><th></th></tr></thead>
       <tbody>
-      {% for x in r.files %}<tr class="{{ 'hl' if x.ioc }}">
+      {% for x in r.files %}<tr class="{{ 'hl' if x.ioc }} {{ markedcls(x) }}">
         <td class="nowrap" data-v="{{ x.ts }}">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td>
         <td>{{ x.proto }}</td>
         <td class="mono nowrap">{{ x.sender }}<div>→ {{ x.receiver }}</div></td>
@@ -268,7 +278,8 @@
         <td class="mono" style="font-size:11px">{% if x.sha256 %}<div class="copy" data-copy="{{ x.sha256 }}" title="SHA256">{{ x.sha256[:16] }}…</div>{% endif %}
           {% if x.md5 %}<div class="copy faint" data-copy="{{ x.md5 }}" title="MD5">md5 {{ x.md5[:12] }}…</div>{% endif %}</td>
         <td>{% if embedded and x.extracted %}<a class="btn small" href="/jobs/{{ job.id }}/files/{{ x.extracted }}" title="{{ L.zip_title }}">ZIP</a>{% endif %}</td>
-      </tr>{% else %}{{ empty(9, L.no_files) }}{% endfor %}
+        {{ markcell('file', x.sha256 or x.filename, x) }}
+      </tr>{% else %}{{ empty(10, L.no_files) }}{% endfor %}
       </tbody>
     </table></div>
   </section>
@@ -334,8 +345,8 @@
   <section class="panel flush">
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.dns_suspicious_t }}</h2><span class="faint">{{ L.dns_suspicious_hint }}</span></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>{{ L.col_name }}</th><th>{{ L.col_reason }}</th><th class="num">{{ L.col_times }}</th><th>{{ L.col_clients }}</th></tr></thead>
-      <tbody>{% for d in r.dns.suspicious %}<tr><td class="mono break">{{ d.name }}</td><td>{{ d.reason|lreason }}</td><td class="num">{{ d.count }}</td><td class="mono">{{ d.clients|join(', ') }}</td></tr>{% endfor %}</tbody>
+      <thead><tr><th>{{ L.col_name }}</th><th>{{ L.col_reason }}</th><th class="num">{{ L.col_times }}</th><th>{{ L.col_clients }}</th><th></th></tr></thead>
+      <tbody>{% for d in r.dns.suspicious %}<tr class="{{ markedcls(d) }}"><td class="mono break">{{ d.name }}</td><td>{{ d.reason|lreason }}</td><td class="num">{{ d.count }}</td><td class="mono">{{ d.clients|join(', ') }}</td>{{ markcell('dns', d.name, d) }}</tr>{% endfor %}</tbody>
     </table></div>
   </section>
   {% endif %}
@@ -390,8 +401,8 @@
   <section class="panel flush">
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.tls_invalid_title }}</h2></div>
     <div class="table-wrap" style="max-height:320px"><table>
-      <thead><tr><th>{{ L.col_time }}</th><th>{{ L.col_client }}</th><th>{{ L.col_server }}</th><th>SNI</th><th>{{ L.col_verify }}</th></tr></thead>
-      <tbody>{% for x in r.tls.invalid %}<tr><td class="nowrap">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td><td class="mono">{{ x.src }}</td><td class="mono">{{ x.dst }}</td><td class="mono break">{{ x.sni or '—' }}</td><td>{{ x.status }}</td></tr>{% endfor %}</tbody>
+      <thead><tr><th>{{ L.col_time }}</th><th>{{ L.col_client }}</th><th>{{ L.col_server }}</th><th>SNI</th><th>{{ L.col_verify }}</th><th></th></tr></thead>
+      <tbody>{% for x in r.tls.invalid %}<tr class="{{ markedcls(x) }}"><td class="nowrap">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td><td class="mono">{{ x.src }}</td><td class="mono">{{ x.dst }}</td><td class="mono break">{{ x.sni or '—' }}</td><td>{{ x.status }}</td>{{ markcell('tls', x.src ~ '>' ~ x.dst ~ '|' ~ (x.sni or ''), x) }}</tr>{% endfor %}</tbody>
     </table></div>
   </section>
   {% endif %}
@@ -414,35 +425,35 @@
   <section class="panel flush">
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.beacons_title }}</h2><span class="faint">{{ L.beacons_hint }}</span></div>
     <div class="table-wrap" style="max-height:360px"><table>
-      <thead><tr><th>{{ L.col_src }}</th><th>{{ L.col_dst }}</th><th class="num" data-sort="num">{{ L.col_conns }}</th><th class="num" data-sort="num">{{ L.col_interval }}</th><th class="num" data-sort="num">{{ L.col_jitter }}</th><th>{{ L.col_period }}</th></tr></thead>
-      <tbody>{% for b in f.beacons %}<tr class="{{ 'hl' if b.ioc }}"><td class="mono">{{ b.src }}</td><td>{{ host(b.dst ~ ':' ~ b.dp, b.name, b.ioc) }}</td>
+      <thead><tr><th>{{ L.col_src }}</th><th>{{ L.col_dst }}</th><th class="num" data-sort="num">{{ L.col_conns }}</th><th class="num" data-sort="num">{{ L.col_interval }}</th><th class="num" data-sort="num">{{ L.col_jitter }}</th><th>{{ L.col_period }}</th><th></th></tr></thead>
+      <tbody>{% for b in f.beacons %}<tr class="{{ 'hl' if b.ioc }} {{ markedcls(b) }}"><td class="mono">{{ b.src }}</td><td>{{ host(b.dst ~ ':' ~ b.dp, b.name, b.ioc) }}</td>
         <td class="num">{{ b.count }}</td><td class="num" data-v="{{ b.interval }}">{{ b.interval|dur }}</td><td class="num" data-v="{{ b.cv }}">{{ (b.cv * 100)|round(1) }}%</td>
-        <td class="nowrap">{{ b.first|ts('%d.%m %H:%M') }} – {{ b.last|ts('%H:%M') }}</td></tr>{% else %}{{ empty(6, L.not_detected) }}{% endfor %}</tbody>
+        <td class="nowrap">{{ b.first|ts('%d.%m %H:%M') }} – {{ b.last|ts('%H:%M') }}</td>{{ markcell('beacon', b.src ~ '>' ~ b.dst ~ ':' ~ b.dp, b) }}</tr>{% else %}{{ empty(7, L.not_detected) }}{% endfor %}</tbody>
     </table></div>
   </section>
   <div class="grid two">
     <section class="panel flush">
       <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.uploads_title }}</h2></div>
       <div class="table-wrap" style="max-height:320px"><table>
-        <thead><tr><th>{{ L.col_src }}</th><th>{{ L.col_receiver }}</th><th class="num">{{ L.col_sent }}</th><th class="num">{{ L.col_conns_short }}</th></tr></thead>
-        <tbody>{% for u in f.large_uploads %}<tr class="{{ 'hl' if u.ioc }}"><td class="mono">{{ u.src }}</td><td>{{ host(u.dst, u.name, u.ioc) }}</td><td class="num">{{ u.bytes|bytes }}</td><td class="num">{{ u.conns }}</td></tr>{% else %}{{ empty(4, L.not_detected) }}{% endfor %}</tbody>
+        <thead><tr><th>{{ L.col_src }}</th><th>{{ L.col_receiver }}</th><th class="num">{{ L.col_sent }}</th><th class="num">{{ L.col_conns_short }}</th><th></th></tr></thead>
+        <tbody>{% for u in f.large_uploads %}<tr class="{{ 'hl' if u.ioc }} {{ markedcls(u) }}"><td class="mono">{{ u.src }}</td><td>{{ host(u.dst, u.name, u.ioc) }}</td><td class="num">{{ u.bytes|bytes }}</td><td class="num">{{ u.conns }}</td>{{ markcell('upload', u.src ~ '>' ~ u.dst, u) }}</tr>{% else %}{{ empty(5, L.not_detected) }}{% endfor %}</tbody>
       </table></div>
     </section>
     <section class="panel flush">
       <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.unusual_title }}</h2></div>
       <div class="table-wrap" style="max-height:320px"><table>
-        <thead><tr><th>{{ L.col_proto }}</th><th>{{ L.col_dst }}</th><th class="num">{{ L.col_times }}</th></tr></thead>
-        <tbody>{% for u in f.unusual_ports %}<tr><td>{{ u.service }}</td><td>{{ host(u.dst ~ ':' ~ u.port, u.name) }}</td><td class="num">{{ u.count }}</td></tr>{% else %}{{ empty(3, L.not_detected) }}{% endfor %}</tbody>
+        <thead><tr><th>{{ L.col_proto }}</th><th>{{ L.col_dst }}</th><th class="num">{{ L.col_times }}</th><th></th></tr></thead>
+        <tbody>{% for u in f.unusual_ports %}<tr class="{{ markedcls(u) }}"><td>{{ u.service }}</td><td>{{ host(u.dst ~ ':' ~ u.port, u.name) }}</td><td class="num">{{ u.count }}</td>{{ markcell('unusual', u.dst ~ ':' ~ u.port ~ '/' ~ u.proto, u) }}</tr>{% else %}{{ empty(4, L.not_detected) }}{% endfor %}</tbody>
       </table></div>
     </section>
     <section class="panel flush">
       <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.cleartext_title }}</h2></div>
       <div class="table-wrap" style="max-height:320px"><table>
-        <thead><tr><th>{{ L.col_proto }}</th><th>{{ L.col_client_server }}</th><th>{{ L.col_user_count }}</th></tr></thead>
+        <thead><tr><th>{{ L.col_proto }}</th><th>{{ L.col_client_server }}</th><th>{{ L.col_user_count }}</th><th></th></tr></thead>
         <tbody>
-        {% for c in f.cleartext_auth %}<tr class="hl"><td>{{ c.proto }}</td><td class="mono">{{ c.src }} → {{ c.dst }}</td><td>{{ L.login_label }}: <strong>{{ c.user }}</strong></td></tr>{% endfor %}
-        {% for c in f.cleartext %}<tr><td>{{ c.proto }}</td><td class="mono">{{ c.src }} → {{ c.dst }}:{{ c.port }}</td><td class="num">{{ c.count }}</td></tr>{% endfor %}
-        {% if not f.cleartext and not f.cleartext_auth %}{{ empty(3, L.not_detected) }}{% endif %}
+        {% for c in f.cleartext_auth %}<tr class="hl {{ markedcls(c) }}"><td>{{ c.proto }}</td><td class="mono">{{ c.src }} → {{ c.dst }}</td><td>{{ L.login_label }}: <strong>{{ c.user }}</strong></td>{{ markcell('cleartext', c.proto ~ '|' ~ c.src ~ '>' ~ c.dst ~ '|' ~ (c.user or ''), c) }}</tr>{% endfor %}
+        {% for c in f.cleartext %}<tr class="{{ markedcls(c) }}"><td>{{ c.proto }}</td><td class="mono">{{ c.src }} → {{ c.dst }}:{{ c.port }}</td><td class="num">{{ c.count }}</td>{{ markcell('cleartext', c.proto ~ '|' ~ c.src ~ '>' ~ c.dst ~ '|' ~ (c.user or ''), c) }}</tr>{% endfor %}
+        {% if not f.cleartext and not f.cleartext_auth %}{{ empty(4, L.not_detected) }}{% endif %}
         </tbody>
       </table></div>
     </section>

@@ -37,7 +37,7 @@ def build_report(cfg: Config, db: DB, job: dict) -> dict:
     flt = (job.get("summary") or {}).get("filter")
     if flt:
         meta["filter"] = flt
-    rep = report_mod.build(jd, index, cfg, meta)
+    rep = report_mod.build(jd, index, cfg, meta, marks=db.marks_for(job["id"]), allow=db.allowlist())
     _write(jd / "report.json", json.dumps(rep, ensure_ascii=False, default=_json_default))
     _write(jd / "report.html", render_report(rep, embedded=False))
     s = report_mod.summary(rep)

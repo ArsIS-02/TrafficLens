@@ -46,6 +46,81 @@
   document.addEventListener("click", closeCtxMenu);
   document.addEventListener("scroll", closeCtxMenu, true);
   document.addEventListener("keydown", e => { if (e.key === "Escape") closeCtxMenu(); });
+
+  // ---------- разметка находок аналитиком (только во встроенном отчёте)
+  const JOB = document.body.dataset.job || "";
+  function paintMark(btn, status, wl) {
+    const td = btn.closest("td");
+    const I = window.TL_I18N || {};
+    td.querySelectorAll("[data-mstatus-badge]").forEach(x => x.remove());
+    if (status && status !== "new") {
+      const s = document.createElement("span");
+      s.className = "badge " + (status === "confirmed" ? "ok" : status === "false_positive" ? "warn" : "");
+      s.dataset.mstatusBadge = "1";
+      s.textContent = I["mark_" + status] || status;
+      td.insertBefore(s, btn);
+    }
+    btn.dataset.mstatus = status || "new";
+    const tr = btn.closest("tr");
+    if (tr) { tr.classList.toggle("marked-fp", status === "false_positive"); tr.classList.toggle("marked-ig", status === "ignored"); }
+    let wlb = td.querySelector("[data-mwl-badge]");
+    if (wl && !wlb) {
+      wlb = document.createElement("span");
+      wlb.className = "badge accent"; wlb.dataset.mwlBadge = "1"; wlb.textContent = "WL"; wlb.title = I.mark_wl_title || "allowlist";
+      td.insertBefore(wlb, btn);
+    } else if (!wl && wlb) { wlb.remove(); }
+    btn.dataset.mwl = wl ? "1" : "0";
+  }
+  async function postJSON(url, obj) {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "TrafficLens" },
+      body: JSON.stringify(obj),
+    });
+    return r.json().catch(() => ({}));
+  }
+  document.addEventListener("click", e => {
+    const btn = e.target.closest(".markbtn");
+    if (!btn || !JOB) return;
+    e.preventDefault();
+    closeCtxMenu();
+    const I = window.TL_I18N || {};
+    const kind = btn.dataset["mkind"];
+    const key = btn.dataset["mkey"];
+    const cur = btn.dataset.mstatus || "new", wl = btn.dataset.mwl === "1";
+    ctxMenu = document.createElement("div");
+    ctxMenu.className = "ctx-menu";
+    const mk = (label, fn, active) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = (active ? "✓ " : "") + label;
+      b.addEventListener("click", async () => {
+        closeCtxMenu();
+        await fn();
+      });
+      ctxMenu.appendChild(b);
+    };
+    const setStatus = st => async () => {
+      const r = await postJSON(`/api/jobs/${JOB}/marks`, { kind, key, status: st });
+      if (r.ok) {
+        paintMark(btn, st, btn.dataset.mwl === "1");
+        if (window.TL && TL.toast) TL.toast((I.mark_saved || "OK") + (r.summary ? `: ${r.summary.verdict_label || ""}` : ""));
+      } else if (window.TL && TL.toast) TL.toast(r.error || "error", true);
+    };
+    mk(I.mark_confirmed || "Confirmed", setStatus("confirmed"), cur === "confirmed");
+    mk(I.mark_false_positive || "False positive", setStatus("false_positive"), cur === "false_positive");
+    mk(I.mark_ignored || "Ignored", setStatus("ignored"), cur === "ignored");
+    if (cur !== "new") mk(I.mark_reset || "Reset", setStatus("new"));
+    mk(wl ? (I.mark_wl_del || "Remove from allowlist") : (I.mark_wl_add || "Add to allowlist"), async () => {
+      const r = await postJSON("/api/allowlist", { kind, key, action: wl ? "del" : "add", job_id: JOB });
+      if (r.ok) {
+        paintMark(btn, btn.dataset.mstatus || "new", !wl);
+        if (window.TL && TL.toast) TL.toast(I.mark_saved || "OK");
+      } else if (window.TL && TL.toast) TL.toast(r.error || "error", true);
+    }, wl);
+    document.body.appendChild(ctxMenu);
+    ctxMenu.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - ctxMenu.offsetWidth - 8)) + "px";
+    ctxMenu.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - ctxMenu.offsetHeight - 8)) + "px";
+  });
   function fromHash() {
     const h = (location.hash || "").slice(1);
     if (h && document.getElementById("tab-" + h)) showTab(h);
