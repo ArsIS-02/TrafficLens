@@ -49,7 +49,7 @@
   <div class="icon">{{ '!' if c.risk.level == 'high' else '?' if c.risk.level == 'medium' else '✓' }}</div>
   <div>
     <div class="title">Risk score {{ c.risk.score }}</div>
-    {% if c.risk.reasons %}<ul>{% for x in c.risk.reasons %}<li>{{ x|lreason }}</li>{% endfor %}</ul>{% endif %}
+    {% if c.risk.reasons %}<ul>{% for x in c.risk.reasons %}<li>{{ x|lreason }} {{ x|evbadge }}</li>{% endfor %}</ul>{% endif %}
   </div>
 </div>
 {% endif %}

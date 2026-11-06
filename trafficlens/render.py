@@ -132,6 +132,34 @@ def loc_ioc(L: dict, v, fallback=None) -> str:
     return L.get("ioc_type_" + str(v), fallback or str(v))
 
 
+# ---------------------------------------------------------------- уверенность в находках
+# fact — прямое наблюдение в логах (совпадение с IOC, срабатывание сигнатуры,
+# перехваченный файл/учётные данные, отказ валидации TLS); heuristic —
+# статистическая или пороговая оценка (маячки, крупные выгрузки, нестандартные
+# порты, подозрительные DNS-имена) — чаще даёт ложные срабатывания.
+EVIDENCE = {"ioc": "fact", "alert": "fact", "file": "fact", "cleartext": "fact", "tls": "fact",
+            "beacon": "heuristic", "upload": "heuristic", "unusual": "heuristic", "dns": "heuristic"}
+
+
+def evidence_of_reason(v) -> str:
+    """Причина вердикта/риска ({k: vr_*/hr_*}) -> 'fact' | 'heuristic' | '' (неизвестно/строка)."""
+    if not isinstance(v, dict):
+        return ""
+    return EVIDENCE.get(str(v.get("k", "")).split("_", 1)[-1], "")
+
+
+def ev_badge(L: dict, v) -> "Markup":
+    """HTML-бейдж уверенности для причины вердикта/риска; пусто, если тип неизвестен."""
+    from markupsafe import Markup, escape
+
+    ev = evidence_of_reason(v)
+    if not ev:
+        return Markup("")
+    cls = "ok" if ev == "fact" else "warn"
+    return Markup('<span class="badge {c}" title="{t}">{s}</span>').format(
+        c=cls, t=escape(L.get(f"ev_{ev}_hint", "")), s=escape(L.get(f"ev_{ev}", ev)))
+
+
 def env() -> Environment:
     e = Environment(loader=FileSystemLoader(str(PKG / "templates")), autoescape=select_autoescape(["html"]),
                     trim_blocks=True, lstrip_blocks=True)
@@ -144,6 +172,7 @@ def env() -> Environment:
     e.filters["lsev"] = pass_context(lambda ctx, v, fallback=None: loc_sev(ctx.get("L", {}), v, fallback))
     e.filters["lioc"] = pass_context(lambda ctx, v, fallback=None: loc_ioc(ctx.get("L", {}), v, fallback))
     e.filters["lreason"] = pass_context(lambda ctx, v: loc_reason(ctx.get("L", {}), v))
+    e.filters["evbadge"] = pass_context(lambda ctx, v: ev_badge(ctx.get("L", {}), v))
     e.filters["lfeed"] = pass_context(lambda ctx, v: loc_feed(ctx.get("L", {}), v))
     e.globals["inline_css"] = lambda: (STATIC / "style.css").read_text(encoding="utf-8")
     e.globals["inline_js"] = lambda name: (STATIC / name).read_text(encoding="utf-8")
