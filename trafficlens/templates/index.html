@@ -45,10 +45,23 @@
 </div>
 
 <section class="panel flush">
-  <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.jobs }}</h2><div class="spacer"></div>
-    {% if q %}<span class="faint" style="align-self:center">{{ L.search_found.format(n=jobs|length) }} · <a href="/">{{ L.search_reset }}</a></span>{% endif %}
-    <form method="get" action="/" style="display:flex;gap:6px;margin:0">
-      <input type="search" name="q" value="{{ q }}" placeholder="{{ L.search_jobs_ph }}" style="margin:0;min-width:220px">
+  <div class="panel-head" style="padding:16px 20px 0;flex-wrap:wrap;gap:8px"><h2>{{ L.jobs }}</h2><div class="spacer"></div>
+    {% if q or flt.verdict or flt.src or flt.dfrom or flt.dto %}<span class="faint" style="align-self:center">{{ L.search_found.format(n=jobs|length) }} · <a href="/">{{ L.search_reset }}</a></span>{% endif %}
+    <form method="get" action="/" style="display:flex;gap:6px;margin:0;flex-wrap:wrap">
+      <input type="search" name="q" value="{{ q }}" placeholder="{{ L.search_jobs_ph }}" style="margin:0;min-width:180px">
+      <select name="verdict" title="{{ L.verdict }}" style="margin:0">
+        <option value="">{{ L.flt_any_verdict }}</option>
+        <option value="critical" {{ 'selected' if flt.verdict == 'critical' }}>{{ L.verdict_critical }}</option>
+        <option value="suspicious" {{ 'selected' if flt.verdict == 'suspicious' }}>{{ L.verdict_suspicious }}</option>
+        <option value="clean" {{ 'selected' if flt.verdict == 'clean' }}>{{ L.verdict_clean }}</option>
+      </select>
+      <select name="src" title="{{ L.source }}" style="margin:0">
+        <option value="">{{ L.flt_any_source }}</option>
+        <option value="upload" {{ 'selected' if flt.src == 'upload' }}>{{ L.source_upload }}</option>
+        <option value="capture" {{ 'selected' if flt.src == 'capture' }}>{{ L.source_capture }}</option>
+      </select>
+      <input type="date" name="dfrom" value="{{ flt.dfrom }}" title="{{ L.flt_from }}" style="margin:0">
+      <input type="date" name="dto" value="{{ flt.dto }}" title="{{ L.flt_to }}" style="margin:0">
       <button class="btn small primary" type="submit">{{ L.find }}</button>
     </form>
     <input type="search" class="filter" data-filter="jobs-table" placeholder="{{ L.filter }}" style="margin:0"></div>
