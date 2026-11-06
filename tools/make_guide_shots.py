@@ -40,23 +40,26 @@ SHOTS = [
     ("01-login", "/login", None, "#username", None,
      [(1, "#username"), (2, "#password"), (3, "button[type=submit]")]),
     ("02-index", "/", "var d=document.querySelector('.pcap-filter'); if(d) d.open=true;", "#jobs-table", None,
-     [(1, "#drop"), (2, ".pcap-filter"), (3, "input[name=q]"), (4, "#jobs-table tbody tr")]),
+     [(1, "#drop"), (2, ".pcap-filter"), (3, "input[name=q]"), (4, "select[name=verdict]"),
+      (5, "#jobs-table tbody tr")]),
     ("03-report-top", "/jobs/{job}", None, ".verdict", None,
      [(1, ".verdict"), (2, ".actions"), (3, ".kpis")]),
     ("04-report-hosts", "/jobs/{job}", None, "#t-hosts", "#t-hosts",
      [(1, "closest:.panel|#t-hosts"), (2, "#t-hosts tbody tr"),
       (3, "closest:.panel|a[href*='attack.mitre.org/tactics']")]),
-    ("05-report-ioc", "/jobs/{job}#ioc", None, "#t-ioc tbody tr", None,
+    ("05-host", "/jobs/{job}/host/192.168.1.50", None, "#t-tl", None,
+     [(1, ".verdict"), (2, ".kpis"), (3, "a[href*='?flt=']"), (4, "#t-tl"), (5, "#t-ct")]),
+    ("06-report-ioc", "/jobs/{job}#ioc", None, "#t-ioc tbody tr", None,
      [(1, "#t-ioc"), (2, "[data-filter=t-ioc]"), (3, "a[href$='export/iocs.csv']"), (4, "#t-ioc .markbtn")]),
-    ("06-report-graph", "/jobs/{job}#graph", None, ".netgraph .gnode", None,
+    ("07-report-graph", "/jobs/{job}#graph", None, ".netgraph .gnode", None,
      [(1, ".netgraph"), (2, ".gzoom")]),
-    ("07-chain", "/jobs/{job}/chain", None, ".chain-tickets", ".chain-tickets",
+    ("08-chain", "/jobs/{job}/chain", None, ".chain-tickets", ".chain-tickets",
      [(1, ".chain"), (2, ".chain-tickets")]),
-    ("08-iocs", "/iocs", None, "[data-action=ioc-update]", None,
+    ("09-iocs", "/iocs", None, "[data-action=ioc-update]", None,
      [(1, "button[data-action=ioc-update].primary"), (2, "button[data-action=rules-update]"),
       (3, "#rulesrc-form"), (4, "#custom-form")]),
 ]
-FULL_PAGE = {"08-iocs"}
+FULL_PAGE = {"05-host", "09-iocs"}
 
 COLLECT_JS = """(sels) => {
   const find = (sel) => {

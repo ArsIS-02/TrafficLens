@@ -916,7 +916,7 @@ def test_help_page(env):
     assert "Administrator guide" in r.text and "/static/help/en/01-login.png" in r.text
     assert "Guide" in c.get("/?lang=en").text
     shots = ("01-login", "02-index", "03-report-top", "04-report-hosts",
-             "05-report-ioc", "06-report-graph", "07-chain", "08-iocs")
+             "05-host", "06-report-ioc", "07-report-graph", "08-chain", "09-iocs")
     for lang in ("ru", "en"):
         for n in shots:
             p = STATIC / "help" / lang / f"{n}.png"
