@@ -460,6 +460,18 @@ RU.update({
     "del_src_confirm": "Удалить источник {name}?",
     "copy_label": "Копировать",
     "vt_check": "Проверить на VirusTotal",
+    "hc_title": "Карточка хоста",
+    "hc_open": "открыть карточку хоста",
+    "hc_timeline": "Таймлайн событий",
+    "hc_timeline_hint": "события протоколов и находки с участием хоста, по времени",
+    "hc_truncated": "показаны первые {n} событий",
+    "hc_event": "Событие",
+    "hc_contacts": "Контакты",
+    "hc_no_events": "событий с участием хоста нет",
+    "ev_dns": "DNS", "ev_tls": "TLS", "ev_http": "HTTP", "ev_file": "Файл",
+    "ev_alert": "Сигнатура", "ev_notice": "notice", "ev_beacon": "Маяк",
+    "ev_upload": "Выгрузка", "ev_long": "Долгое соед.", "ev_unusual": "Порт",
+    "ev_cleartext": "Cleartext", "ev_tls_bad": "TLS-сертификат", "ev_dns_sus": "DNS-подозр.",
 })
 
 EN.update({
@@ -743,6 +755,18 @@ EN.update({
     "del_src_confirm": "Delete source {name}?",
     "copy_label": "Copy",
     "vt_check": "Check on VirusTotal",
+    "hc_title": "Host card",
+    "hc_open": "open host card",
+    "hc_timeline": "Event timeline",
+    "hc_timeline_hint": "protocol events and findings involving this host, in time order",
+    "hc_truncated": "showing first {n} events",
+    "hc_event": "Event",
+    "hc_contacts": "Contacts",
+    "hc_no_events": "no events involving this host",
+    "ev_dns": "DNS", "ev_tls": "TLS", "ev_http": "HTTP", "ev_file": "File",
+    "ev_alert": "Signature", "ev_notice": "notice", "ev_beacon": "Beacon",
+    "ev_upload": "Upload", "ev_long": "Long conn", "ev_unusual": "Port",
+    "ev_cleartext": "Cleartext", "ev_tls_bad": "TLS certificate", "ev_dns_sus": "Suspicious DNS",
 })
 
 BUNDLES = {"ru": RU, "en": EN}

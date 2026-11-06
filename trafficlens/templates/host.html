@@ -1,0 +1,125 @@
+{% extends "layout.html" %}
+{% block title %}{{ c.ip }} — {{ L.hc_title }} — TrafficLens{% endblock %}
+{% macro evdesc(e) %}
+  {%- if e.kind == 'dns' -%}
+    <span class="mono break">{{ e.q }}</span>{% if e.rcode %} <span class="badge {{ 'warn' if e.rcode == 'NXDOMAIN' }}">{{ e.rcode }}</span>{% endif %}
+    {%- if e.answers %}<div class="faint mono">{{ e.answers|join(', ') }}</div>{% endif %}
+  {%- elif e.kind == 'tls' -%}
+    {% if e.sni %}<span class="mono">{{ e.sni }}</span> → {% endif %}<span class="mono">{{ e.peer }}{% if e.dp %}:{{ e.dp }}{% endif %}</span> <span class="faint">{{ e.version }}</span>
+    {%- if e.bad %} <span class="badge warn">{{ e.validation }}</span>{% endif %}
+  {%- elif e.kind == 'http' -%}
+    <span class="badge">{{ e.method }}</span> <span class="mono break">{{ e.host }}{{ e.uri }}</span>{% if e.status %} <span class="faint">→ {{ e.status }}</span>{% endif %}
+  {%- elif e.kind == 'file' -%}
+    <span class="mono break">{{ e.filename or (e.sha256[:16] ~ '…') }}</span> <span class="faint">{{ e.size|bytes }} · {{ e.direction|ldir }}{% if e.peer %} · {{ e.peer }}{% endif %}</span>
+  {%- elif e.kind == 'alert' -%}
+    {{ e.signature }} <div class="faint">sev{{ e.severity }} · {{ e.category }} · {{ e.peer }}</div>
+  {%- elif e.kind == 'notice' -%}
+    {{ e.note }}{% if e.msg %} <span class="faint">{{ e.msg }}</span>{% endif %}
+  {%- elif e.kind == 'beacon' -%}
+    <span class="mono">{{ e.peer }}:{{ e.dp }}</span> ×{{ e.count }} · {{ L.col_interval }} {{ '%.1f'|format(e.interval or 0) }}s
+  {%- elif e.kind == 'upload' -%}
+    <span class="mono">{{ e.peer }}</span> · {{ e.bytes|bytes }}
+  {%- elif e.kind == 'long' -%}
+    <span class="mono">{{ e.peer }}:{{ e.dp }}</span> · {{ e.dur|dur }}
+  {%- elif e.kind == 'unusual' -%}
+    {{ e.service }}/{{ e.proto }} {{ L.col_port }} {{ e.port }} → <span class="mono">{{ e.peer }}</span> ×{{ e.count }}
+  {%- elif e.kind == 'cleartext' -%}
+    {{ e.proto }}{% if e.user %} · {{ L.login_label }} <span class="mono">{{ e.user }}</span>{% endif %}{% if e.peer %} · {{ e.peer }}{% endif %}
+  {%- elif e.kind == 'tls_bad' -%}
+    {% if e.sni %}<span class="mono">{{ e.sni }}</span> → {% endif %}<span class="mono">{{ e.peer }}</span> <span class="badge warn">{{ e.validation }}</span>
+  {%- elif e.kind == 'dns_sus' -%}
+    <span class="mono break">{{ e.q }}</span>{% if e.reason %} <span class="faint">{{ e.reason|lreason }}</span>{% endif %}
+  {%- endif %}
+{% endmacro %}
+{% block content %}
+<div class="report-head">
+  <div>
+    <h1><span class="mono">{{ c.ip }}</span>{% if c.name %} <span class="muted">· {{ c.name }}</span>{% endif %}</h1>
+    <div class="meta">
+      <a href="/jobs/{{ job.id }}">← {{ job.filename }}</a>
+      {% if c.period.start %} · {{ L.traffic }}: {{ c.period.start|ts('%d.%m %H:%M') }} — {{ c.period.end|ts('%d.%m %H:%M') }}{% endif %}
+      {% if c.mac %} · <span class="mono">{{ c.mac }}</span>{% endif %}
+      {% if not c.local %} · <span class="badge warn">{{ L.external_badge }}</span>{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if c.risk %}
+<div class="verdict {{ 'critical' if c.risk.level == 'high' else 'suspicious' if c.risk.level == 'medium' else 'clean' }}">
+  <div class="icon">{{ '!' if c.risk.level == 'high' else '?' if c.risk.level == 'medium' else '✓' }}</div>
+  <div>
+    <div class="title">Risk score {{ c.risk.score }}</div>
+    {% if c.risk.reasons %}<ul>{% for x in c.risk.reasons %}<li>{{ x|lreason }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="kpis">
+  <div class="kpi"><div class="v">{{ c.totals.conns|int }}</div><div class="l">{{ L.kpi_conns }}</div></div>
+  <div class="kpi"><div class="v">{{ c.totals.out|bytes }}</div><div class="l">{{ L.col_sent }}</div></div>
+  <div class="kpi"><div class="v">{{ c.totals.in|bytes }}</div><div class="l">{{ L.col_recv }}</div></div>
+  <div class="kpi {{ 'crit' if c.ioc_hits }}"><div class="v">{{ c.ioc_hits|length }}</div><div class="l">{{ L.kpi_ioc }}</div></div>
+  <div class="kpi"><div class="v">{{ c.files|length }}</div><div class="l">{{ L.kpi_files }}</div></div>
+</div>
+
+{% if c.ioc_hits %}
+<section class="panel flush">
+  <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ioc_hits_title }}</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ L.col_type }}</th><th>{{ L.col_indicator }}</th><th>{{ L.col_context }}</th><th class="num">{{ L.col_times }}</th></tr></thead>
+    <tbody>{% for h in c.ioc_hits %}<tr class="hl">
+      <td>{{ h.type|lioc(h.type_label) }}</td>
+      <td class="break"><span class="mono copy">{{ h.value }}</span></td>
+      <td>{% for ctx in h.contexts %}{{ ctx|lctx }}{{ ", " if not loop.last }}{% endfor %}</td>
+      <td class="num">{{ h.count }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+
+<section class="panel flush">
+  <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.hc_timeline }}</h2>
+    <span class="faint">{{ L.hc_truncated.format(n=c.events|length) if c.truncated else L.hc_timeline_hint }}</span>
+    <div class="spacer"></div><input type="search" class="filter" data-filter="t-tl" placeholder="{{ L.filter_table }}"></div>
+  <div class="table-wrap"><table id="t-tl">
+    <thead><tr><th>{{ L.col_time }}</th><th>{{ L.col_type }}</th><th>{{ L.hc_event }}</th></tr></thead>
+    <tbody>
+    {% for e in c.events %}<tr class="{{ 'hl' if e.ioc }}">
+      <td class="nowrap">{{ e.ts|ts('%H:%M:%S') if e.ts else '—' }}<div class="faint">{{ e.ts|ts('%d.%m') if e.ts else '' }}</div></td>
+      <td class="nowrap"><span class="badge {{ 'crit' if e.ioc else 'warn' if e.kind in ('beacon','upload','unusual','cleartext','tls_bad','dns_sus') else 'accent' }}">{{ L.get('ev_' ~ e.kind, e.kind) }}</span></td>
+      <td>{{ evdesc(e) }}</td>
+    </tr>{% else %}<tr><td colspan="3" class="empty">{{ L.hc_no_events }}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+<section class="panel flush">
+  <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.hc_contacts }}</h2><span class="faint">{{ c.contacts|length }}</span>
+    <div class="spacer"></div><input type="search" class="filter" data-filter="t-ct" placeholder="{{ L.filter_table }}"></div>
+  <div class="table-wrap"><table id="t-ct">
+    <thead><tr><th data-sort="text">{{ L.col_address }}</th><th class="num" data-sort="num">{{ L.col_conns }}</th><th class="num" data-sort="num">{{ L.col_sent }}</th><th class="num" data-sort="num">{{ L.col_recv }}</th><th>{{ L.col_ports }}</th></tr></thead>
+    <tbody>
+    {% for x in c.contacts %}<tr class="{{ 'hl' if x.ioc }}">
+      <td><span class="mono copy" data-copy="{{ x.ip }}">{{ x.ip }}</span>{% if x.ioc %} <span class="badge crit">IOC</span>{% endif %}{% if x.name %}<div class="faint">{{ x.name }}</div>{% endif %}</td>
+      <td class="num">{{ x.conns }}</td><td class="num">{{ x.out|bytes }}</td><td class="num">{{ x.in|bytes }}</td>
+      <td class="mono">{{ x.ports|join(', ') }}</td>
+    </tr>{% else %}<tr><td colspan="5" class="empty">{{ L.no_data }}</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+{% if c.files %}
+<section class="panel flush">
+  <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.files_title }}</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>{{ L.col_time }}</th><th>{{ L.col_name_url }}</th><th>{{ L.col_direction }}</th><th class="num">{{ L.col_size }}</th><th>{{ L.col_hashes }}</th></tr></thead>
+    <tbody>{% for x in c.files %}<tr class="{{ 'hl' if x.ioc }}">
+      <td class="nowrap">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td>
+      <td class="break mono">{{ x.filename or x.sha256[:16] }}</td>
+      <td>{{ x.direction|ldir }}</td><td class="num">{{ x.size|bytes }}</td>
+      <td class="mono break">{% if x.sha256 %}<span class="copy" data-copy="{{ x.sha256 }}">{{ x.sha256[:16] }}…</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="/static/report.js"></script>{% endblock %}

@@ -10,7 +10,7 @@
 </head>
 {% set t = r.totals %}{% set f = r.findings %}
 {% macro host(ip, name='', ioc=False) -%}
-<span class="mono copy" data-copy="{{ ip }}">{{ ip }}</span>{% if ioc %} <span class="badge crit">IOC</span>{% endif %}{% if name %}<div class="faint">{{ name }}</div>{% endif %}
+<span class="mono copy" data-copy="{{ ip }}">{{ ip }}</span>{% if embedded and job.id %} <a href="/jobs/{{ job.id }}/host/{{ ip }}" title="{{ L.hc_open }}" style="text-decoration:none">▸</a>{% endif %}{% if ioc %} <span class="badge crit">IOC</span>{% endif %}{% if name %}<div class="faint">{{ name }}</div>{% endif %}
 {%- endmacro %}
 {% macro filter(id) %}<input type="search" class="filter" data-filter="{{ id }}" placeholder="{{ L.filter_table }}">{% endmacro %}
 {% macro empty(cols, text=None) %}<tr><td colspan="{{ cols }}" class="empty">{{ text or L.no_data }}</td></tr>{% endmacro %}
