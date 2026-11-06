@@ -921,3 +921,28 @@ def test_help_page(env):
         for n in shots:
             p = STATIC / "help" / lang / f"{n}.png"
             assert p.exists() and p.stat().st_size > 10000, (lang, n)
+
+
+def test_hostcard_report_links(env, tmp_path):
+    """Карточка хоста: ссылки ↗ ведут на отчёт с предзаполненным фильтром (?flt=...#вкладка)."""
+    from trafficlens import worker
+    from trafficlens.render import STATIC
+    from trafficlens.web import create_app
+
+    cfg, db = env
+    pcap = tmp_path / "x.pcap"
+    pcap.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid = worker.enqueue_file(cfg, db, pcap, "x.pcap", "upload", move=False)
+    fx.make_job(pipeline.job_dir(cfg, jid))
+    pipeline.rematch(cfg, db, jid)
+    db.update_job(jid, status="done")
+
+    c = create_app(cfg, start_workers=False).test_client()
+    card = c.get(f"/jobs/{jid}/host/{fx.WS}").text
+    assert f"/jobs/{jid}?flt={fx.WS}#ioc" in card
+    assert f"/jobs/{jid}?flt={fx.WS}#net" in card
+    assert f"/jobs/{jid}?flt={fx.WS}#files" in card
+    assert "?flt=evil-c2.example#ioc" in card
+    # report.js подхватывает ?flt= и проставляет фильтры активной вкладки
+    js = (STATIC / "report.js").read_text(encoding="utf-8")
+    assert 'get("flt")' in js

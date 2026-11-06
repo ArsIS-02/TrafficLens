@@ -32,6 +32,7 @@
   {%- endif %}
 {% endmacro %}
 {% block content %}
+{% macro gorep(tab, q) %} <a class="btn small" href="/jobs/{{ job.id }}?flt={{ q|urlencode }}#{{ tab }}" title="{{ L.hc_show_in_report }}" style="text-decoration:none;padding:0 7px;line-height:20px">↗</a>{% endmacro %}
 <div class="report-head">
   <div>
     <h1><span class="mono">{{ c.ip }}</span>{% if c.name %} <span class="muted">· {{ c.name }}</span>{% endif %}</h1>
@@ -64,12 +65,12 @@
 
 {% if c.ioc_hits %}
 <section class="panel flush">
-  <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ioc_hits_title }}</h2></div>
+  <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ioc_hits_title }}</h2><div class="spacer"></div>{{ gorep('ioc', c.ip) }}</div>
   <div class="table-wrap"><table>
     <thead><tr><th>{{ L.col_type }}</th><th>{{ L.col_indicator }}</th><th>{{ L.col_context }}</th><th class="num">{{ L.col_times }}</th></tr></thead>
     <tbody>{% for h in c.ioc_hits %}<tr class="hl">
       <td>{{ h.type|lioc(h.type_label) }}</td>
-      <td class="break"><span class="mono copy">{{ h.value }}</span></td>
+      <td class="break"><span class="mono copy">{{ h.value }}</span>{{ gorep('ioc', h.value) }}</td>
       <td>{% for ctx in h.contexts %}{{ ctx|lctx }}{{ ", " if not loop.last }}{% endfor %}</td>
       <td class="num">{{ h.count }}</td></tr>{% endfor %}</tbody>
   </table></div>
@@ -94,7 +95,7 @@
 
 <section class="panel flush">
   <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.hc_contacts }}</h2><span class="faint">{{ c.contacts|length }}</span>
-    <div class="spacer"></div><input type="search" class="filter" data-filter="t-ct" placeholder="{{ L.filter_table }}"></div>
+    <div class="spacer"></div>{{ gorep('net', c.ip) }}<input type="search" class="filter" data-filter="t-ct" placeholder="{{ L.filter_table }}"></div>
   <div class="table-wrap"><table id="t-ct">
     <thead><tr><th data-sort="text">{{ L.col_address }}</th><th class="num" data-sort="num">{{ L.col_conns }}</th><th class="num" data-sort="num">{{ L.col_sent }}</th><th class="num" data-sort="num">{{ L.col_recv }}</th><th>{{ L.col_ports }}</th></tr></thead>
     <tbody>
@@ -109,12 +110,12 @@
 
 {% if c.files %}
 <section class="panel flush">
-  <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.files_title }}</h2></div>
+  <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.files_title }}</h2><div class="spacer"></div>{{ gorep('files', c.ip) }}</div>
   <div class="table-wrap"><table>
     <thead><tr><th>{{ L.col_time }}</th><th>{{ L.col_name_url }}</th><th>{{ L.col_direction }}</th><th class="num">{{ L.col_size }}</th><th>{{ L.col_hashes }}</th></tr></thead>
     <tbody>{% for x in c.files %}<tr class="{{ 'hl' if x.ioc }}">
       <td class="nowrap">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td>
-      <td class="break mono">{{ x.filename or x.sha256[:16] }}</td>
+      <td class="break mono">{{ x.filename or x.sha256[:16] }}{{ gorep('files', x.filename or x.sha256[:16]) }}</td>
       <td>{{ x.direction|ldir }}</td><td class="num">{{ x.size|bytes }}</td>
       <td class="mono break">{% if x.sha256 %}<span class="copy" data-copy="{{ x.sha256 }}">{{ x.sha256[:16] }}…</span>{% endif %}</td>
     </tr>{% endfor %}</tbody>

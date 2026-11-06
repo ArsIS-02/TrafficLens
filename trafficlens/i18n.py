@@ -98,6 +98,7 @@ RU = {
     "ev_fact_hint": "Прямое наблюдение в логах: совпадение с IOC, срабатывание сигнатуры, перехваченный файл или учётные данные",
     "ev_heuristic": "Эвристика",
     "ev_heuristic_hint": "Статистическая или пороговая оценка — возможны ложные срабатывания",
+    "hc_show_in_report": "Показать в отчёте с фильтром",
 }
 
 EN = {
@@ -194,6 +195,7 @@ EN = {
     "ev_fact_hint": "Directly observed in logs: IOC match, signature hit, captured file or credentials",
     "ev_heuristic": "Heuristic",
     "ev_heuristic_hint": "Statistical or threshold-based estimate — false positives are possible",
+    "hc_show_in_report": "Show in filtered report",
 }
 
 RU.update({
