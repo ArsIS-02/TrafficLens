@@ -99,6 +99,10 @@ RU = {
     "ev_heuristic": "Эвристика",
     "ev_heuristic_hint": "Статистическая или пороговая оценка — возможны ложные срабатывания",
     "hc_show_in_report": "Показать в отчёте с фильтром",
+    "flt_any_verdict": "Любой вердикт",
+    "flt_any_source": "Любой источник",
+    "flt_from": "С даты",
+    "flt_to": "По дату",
 }
 
 EN = {
@@ -196,6 +200,10 @@ EN = {
     "ev_heuristic": "Heuristic",
     "ev_heuristic_hint": "Statistical or threshold-based estimate — false positives are possible",
     "hc_show_in_report": "Show in filtered report",
+    "flt_any_verdict": "Any verdict",
+    "flt_any_source": "Any source",
+    "flt_from": "From date",
+    "flt_to": "To date",
 }
 
 RU.update({

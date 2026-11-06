@@ -949,3 +949,45 @@ def test_hostcard_report_links(env, tmp_path):
     js = (STATIC / "report.js").read_text(encoding="utf-8")
     assert 'get("flt")' in js
     assert js.find("applyPreFilter") > js.find('addEventListener("input"')
+
+
+def test_index_filters(env, tmp_path):
+    """Фильтры задач на главной: по вердикту, источнику и дате создания."""
+    import time as _time
+
+    from trafficlens import worker
+    from trafficlens.web import _filter_jobs, create_app
+
+    cfg, db = env
+    pcap = tmp_path / "x.pcap"
+    pcap.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid = worker.enqueue_file(cfg, db, pcap, "x.pcap", "upload", move=False)
+    fx.make_job(pipeline.job_dir(cfg, jid))
+    pipeline.rematch(cfg, db, jid)
+    db.update_job(jid, status="done")  # вердикт critical, источник upload
+
+    pcap2 = tmp_path / "y.pcap"
+    pcap2.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid2 = worker.enqueue_file(cfg, db, pcap2, "y.pcap", "capture", move=False)
+    db.update_job(jid2, status="done", summary={"verdict": "clean"})
+
+    c = create_app(cfg, start_workers=False).test_client()
+    r = c.get("/").text
+    assert "x.pcap" in r and "y.pcap" in r
+    r = c.get("/?verdict=critical").text
+    assert "x.pcap" in r and "y.pcap" not in r
+    assert "Найдено: 1" in r
+    r = c.get("/?src=capture").text
+    assert "y.pcap" in r and "x.pcap" not in r
+    r = c.get("/?verdict=clean&src=upload").text
+    assert "x.pcap" not in r and "y.pcap" not in r
+    today = _time.strftime("%Y-%m-%d")
+    assert "x.pcap" in c.get(f"/?dfrom={today}").text
+    assert "x.pcap" not in c.get("/?dfrom=2999-01-01").text
+    # выбранные значения сохраняются в форме
+    r = c.get("/?verdict=critical").text
+    assert 'value="critical" selected' in r
+    # unit-хелпер напрямую, в т.ч. невалидная дата не ломает выборку
+    jobs = db.jobs()
+    assert [j["filename"] for j in _filter_jobs(jobs, {"verdict": "clean"})] == ["y.pcap"]
+    assert len(_filter_jobs(jobs, {"dfrom": "не-дата"})) == 2

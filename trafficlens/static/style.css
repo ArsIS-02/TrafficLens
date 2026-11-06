@@ -73,8 +73,9 @@ h3 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); font-weight: 600;
 .btn.danger.solid { background: var(--crit); border-color: var(--crit); color: #fff; }
 .btn.small { padding: 4px 9px; font-size: 12px; }
 .btn[disabled] { opacity: .5; cursor: default; }
-input[type=text], input[type=password], input[type=search], textarea, select {
+input[type=text], input[type=password], input[type=search], input[type=date], textarea, select {
   font: 13px var(--sans); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+select { padding: 6px 8px; }
 textarea { font-family: var(--mono); width: 100%; min-height: 220px; resize: vertical; }
 input:focus, textarea:focus, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 

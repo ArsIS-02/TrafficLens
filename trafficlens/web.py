@@ -33,6 +33,34 @@ LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_SEC = 600
 
 
+def _filter_jobs(jobs: list[dict], flt: dict) -> list[dict]:
+    """Фильтры списка задач на главной: verdict / src / дата создания (dfrom..dto, ISO date)."""
+    import datetime as dt
+
+    def _day(s: str):
+        try:
+            return dt.date.fromisoformat(s) if s else None
+        except ValueError:
+            return None
+
+    d0, d1 = _day(flt.get("dfrom", "")), _day(flt.get("dto", ""))
+    out = []
+    for j in jobs:
+        s = j.get("summary") or {}
+        v = s.get("verdict")
+        v = v.get("level") if isinstance(v, dict) else v
+        if flt.get("verdict") and v != flt["verdict"]:
+            continue
+        if flt.get("src") and j.get("source") != flt["src"]:
+            continue
+        if d0 or d1:
+            d = dt.datetime.fromtimestamp(j.get("created") or 0).date()
+            if d0 and d < d0 or d1 and d > d1:
+                continue
+        out.append(j)
+    return out
+
+
 def hash_password(password: str, iterations: int = PBKDF2_ITERATIONS) -> str:
     """PBKDF2-SHA256 -> 'pbkdf2$<iterations>$<salt_hex>$<hash_hex>'. Для записи в auth.password_hash."""
     import hashlib
@@ -157,8 +185,11 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     @require_login
     def index():
         q = (request.args.get("q") or "").strip()[:200]
+        flt = {k: (request.args.get(k) or "").strip() for k in ("verdict", "src", "dfrom", "dto")}
         jobs = pipeline.search_jobs(cfg, db, q) if q else db.jobs()
-        return tpl("index.html", page="jobs", jobs=jobs, q=q, capture=worker.capture_status(cfg),
+        if any(flt.values()):
+            jobs = _filter_jobs(jobs, flt)
+        return tpl("index.html", page="jobs", jobs=jobs, q=q, flt=flt, capture=worker.capture_status(cfg),
                    tools=runner.tool_versions(cfg), max_mb=cfg["max_upload_mb"])
 
     @app.get("/jobs/<job_id>")
