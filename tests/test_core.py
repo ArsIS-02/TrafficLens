@@ -760,3 +760,60 @@ def test_kill_chain(env, tmp_path):
     assert f"/jobs/{jid}/chain" in c.get(f"/jobs/{jid}").text
     from trafficlens.render import render_report
     assert "/chain" not in render_report(rep, embedded=False)
+
+
+def test_analyst_markup(env, tmp_path):
+    """Разметка аналитиком: статусы и allowlist снимают очки при пересверке, сброс возвращает."""
+    from trafficlens import markup, worker
+    from trafficlens.web import create_app
+
+    H = {"X-Requested-With": "TrafficLens"}
+    cfg, db = env
+    pcap = tmp_path / "x.pcap"
+    pcap.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid = worker.enqueue_file(cfg, db, pcap, "x.pcap", "upload", move=False)
+    fx.make_job(pipeline.job_dir(cfg, jid))
+    s0 = pipeline.rematch(cfg, db, jid)
+    db.update_job(jid, status="done")
+    assert s0["verdict"] == "critical"
+    rep0 = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
+    score0 = rep0["verdict"]["score"]
+    sid = str(rep0["alerts"][0]["sid"])
+    assert rep0["alerts"][0]["severity"] == 1  # вес alert_sev_1 участвует в score
+
+    c = create_app(cfg, start_workers=False).test_client()
+    # ложная сигнатура: score падает сразу (авто-пересборка), бейдж виден в HTML
+    r = c.post(f"/api/jobs/{jid}/marks", json={"kind": "alert", "key": sid, "status": "false_positive"}, headers=H)
+    assert r.status_code == 200 and r.get_json()["summary"]["verdict"]
+    rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
+    assert rep["alerts"][0]["status"] == "false_positive"
+    assert rep["verdict"]["score"] < score0
+    assert "Ложная" in c.get(f"/jobs/{jid}").text
+    # сброс статуса возвращает очки
+    c.post(f"/api/jobs/{jid}/marks", json={"kind": "alert", "key": sid, "status": "new"}, headers=H)
+    rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
+    assert "status" not in rep["alerts"][0] and rep["verdict"]["score"] == score0
+
+    # allowlist: IOC-хит остаётся виден со значком WL, но не даёт очков ни в одной задаче
+    r = c.post("/api/allowlist", json={"kind": "ioc", "key": "evil-c2.example", "action": "add", "job_id": jid}, headers=H)
+    assert r.get_json()["ok"] and r.get_json()["allowlist"] == 1
+    rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
+    hit = next(h for h in rep["ioc_hits"] if h["value"] == "evil-c2.example")
+    assert hit["wl"] is True and rep["verdict"]["score"] < score0
+    assert "WL" in c.get(f"/jobs/{jid}").text
+    assert "evil-c2.example" in c.get("/iocs").text  # список показан на странице IOC
+    # маячок -> игнор: тоже снимает очки
+    b0 = rep0["findings"]["beacons"][0]
+    c.post(f"/api/jobs/{jid}/marks",
+           json={"kind": "beacon", "key": markup.key_of("beacon", b0), "status": "ignored"}, headers=H)
+    rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
+    assert rep["findings"]["beacons"][0]["status"] == "ignored"
+    # полная очистка: allowlist del + без статусов -> score как в начале
+    c.post("/api/allowlist", json={"kind": "ioc", "key": "evil-c2.example", "action": "del"}, headers=H)
+    c.post(f"/api/jobs/{jid}/marks",
+           json={"kind": "beacon", "key": markup.key_of("beacon", b0), "status": "new"}, headers=H)
+    rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
+    assert rep["verdict"]["score"] == score0
+    # валидация параметров
+    assert c.post(f"/api/jobs/{jid}/marks", json={"kind": "nope", "key": "x", "status": "confirmed"}, headers=H).status_code == 400
+    assert c.post("/api/allowlist", json={"kind": "ioc", "key": "", "action": "add"}, headers=H).status_code == 400

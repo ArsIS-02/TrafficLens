@@ -79,7 +79,7 @@ retention:
 
 Достаточно копировать каталог данных при остановленном сервисе (или снапшот тома):
 
-- `trafficlens.db` — очередь, задачи, база IOC;
+- `trafficlens.db` — очередь, задачи, база IOC, разметка аналитика (таблица `marks`) и глобальный allowlist (`allowlist`);
 - `jobs/` — отчёты, логи Zeek/Suricata, PCAP;
 - `config/trafficlens.yaml` — конфигурация;
 - `ioc/custom/` — свои списки.

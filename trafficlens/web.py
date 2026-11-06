@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, session, url_for
 
-from . import feeds, hostcard, ioc_store, killchain, pipeline, render, runner, worker
+from . import feeds, hostcard, ioc_store, killchain, markup, pipeline, render, runner, worker
 from .config import Config
 from .config import load as load_config
 from .db import DB
@@ -280,7 +280,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         ]
         return tpl("iocs.html", page="iocs", sources=sources, feeds=db.feeds(), stats=ioc_store.stats(db), custom=custom,
                    state=worker.state(), tools=runner.tool_versions(cfg), abusech_key=bool(ic["abusech"]["auth_key"]),
-                   rule_sources=runner.rule_sources(cfg))
+                   rule_sources=runner.rule_sources(cfg), allow=db.allowlist())
 
     # ------------------------------------------------------------- API
     @app.post("/api/upload")
@@ -328,6 +328,52 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     @require_login
     def api_jobs():
         return jsonify(jobs=[_public_job(j) for j in db.jobs()], capture=worker.capture_status(cfg))
+
+    @app.post("/api/jobs/<job_id>/marks")
+    @require_login
+    def api_mark(job_id):
+        """Разметка находки аналитиком; после изменения отчёт пересобирается (пересчёт score)."""
+        j = get_job(job_id)
+        data = request.get_json(silent=True) or {}
+        kind = data.get("kind")
+        key = (data.get("key") or "")[:300]
+        status = data.get("status")
+        note = (data.get("note") or "")[:300]
+        if kind not in markup.KINDS or not key or status not in markup.STATUSES:
+            return jsonify(error=et("err_bad_mark")), 400
+        db.set_mark(job_id, kind, key, status, note)
+        summary = None
+        if j["status"] == "done":
+            try:
+                summary = pipeline.rematch(cfg, db, job_id)
+            except FileNotFoundError:
+                pass
+        return jsonify(ok=True, summary=summary)
+
+    @app.post("/api/allowlist")
+    @require_login
+    def api_allowlist():
+        """Глобальный allowlist: add/del; с job_id — сразу пересобрать этот отчёт."""
+        data = request.get_json(silent=True) or {}
+        kind = data.get("kind")
+        key = (data.get("key") or "")[:300]
+        action = data.get("action")
+        if kind not in markup.KINDS or not key or action not in ("add", "del"):
+            return jsonify(error=et("err_bad_mark")), 400
+        if action == "add":
+            db.allow_add(kind, key, (data.get("note") or "")[:300])
+        else:
+            db.allow_del(kind, key)
+        summary = None
+        job_id = data.get("job_id") or ""
+        if job_id and JOB_RE.match(job_id):
+            j = db.job(job_id)
+            if j and j["status"] == "done":
+                try:
+                    summary = pipeline.rematch(cfg, db, job_id)
+                except FileNotFoundError:
+                    pass
+        return jsonify(ok=True, summary=summary, allowlist=len(db.allowlist()))
 
     @app.get("/api/jobs/<job_id>")
     @require_login

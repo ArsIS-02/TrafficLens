@@ -62,6 +62,17 @@
     <button class="btn primary" type="submit">{{ L.add }}</button>
   </form>
 </section>
+
+<section class="panel">
+  <div class="panel-head"><h2>{{ L.allow_title }}</h2><span class="faint">{{ allow|length }}</span></div>
+  <div class="faint" style="margin-bottom:10px">{{ L.allow_hint }}</div>
+  {% for (kind, key), note in allow.items()|sort %}
+  <div class="ioc-src">
+    <div><span class="badge accent">{{ L.get('mk_' ~ kind, kind) }}</span> <span class="mono break">{{ key }}</span>{% if note %}<div class="faint">{{ note }}</div>{% endif %}</div>
+    <div><button class="btn small danger" data-action="allow-del" data-kind="{{ kind }}" data-key="{{ key }}">{{ L.delete }}</button></div>
+  </div>
+  {% else %}<div class="muted">{{ L.allow_empty }}</div>{% endfor %}
+</section>
 </div>
 </div>
 
