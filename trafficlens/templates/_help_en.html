@@ -1,0 +1,86 @@
+<h1>Administrator guide</h1>
+<p>TrafficLens dissects a traffic capture (PCAP) and shows what to look for: matches against indicators of compromise (IOCs), Suricata signature hits, transferred files, anomalies, and the compromise chain. Below is the typical workflow — from uploading a capture to a ticket-ready report.</p>
+
+<section>
+<h2>1. Signing in</h2>
+<img src="/static/help/en/01-login.png" alt="Sign-in page">
+<ol>
+  <li>Username (default <code>admin</code>, set via <code>auth.username</code> / <code>TL_USERNAME</code>).</li>
+  <li>Password. After 5 failed attempts within 10 minutes, sign-in from that address is temporarily throttled.</li>
+  <li>Sign-in button. Interface language (RU/EN) and theme (◐) can be switched in the header of any page.</li>
+</ol>
+</section>
+
+<section>
+<h2>2. Uploading a capture and searching jobs</h2>
+<img src="/static/help/en/02-index.png" alt="Main page">
+<ol>
+  <li>Upload zone: drag a PCAP/PCAPNG file here or click to browse. Analysis starts automatically.</li>
+  <li>PCAP filter (expands below the upload zone): a BPF expression (tcpdump syntax) and/or a time window — only matching traffic is analyzed, which speeds up large captures considerably.</li>
+  <li>Job search: matches the file name and, for finished analyses, also hosts, IOCs, transferred files and DNS names from the report.</li>
+  <li>Job list with verdicts: <b>critical</b> / <b>suspicious</b> / <b>clean</b>. Click a row to open the report.</li>
+</ol>
+</section>
+
+<section>
+<h2>3. Report: verdict and actions</h2>
+<img src="/static/help/en/03-report-top.png" alt="Verdict and actions">
+<ol>
+  <li>Scored verdict: a sum of weighted findings with a breakdown showing how many points each one contributed. Confidence badges: <b>Fact</b> — directly observed in logs (IOC, signature, captured data), <b>Heuristic</b> — a statistical estimate, false positives are possible.</li>
+  <li>Actions: download the standalone HTML, PDF, JSON, or the source PCAP; re-match IOCs (without re-parsing), re-run the analysis, delete the job.</li>
+  <li>KPIs: connections, traffic, IOC hits, signatures, files.</li>
+</ol>
+</section>
+
+<section>
+<h2>4. Where to start the investigation</h2>
+<img src="/static/help/en/04-report-hosts.png" alt="Priority hosts and MITRE">
+<ol>
+  <li><b>Priority hosts</b> — local hosts ranked by total risk. Start at the top. The CSV button exports the table (opens in Excel/LibreOffice).</li>
+  <li>Risk reasons with confidence badges and the indicators involved.</li>
+  <li>The ▸ icon next to an address opens its <b>host card</b>: a timeline of all events, contacts, files.</li>
+  <li>MITRE ATT&CK panel: tactics and techniques; links lead to attack.mitre.org with a description of each technique.</li>
+</ol>
+</section>
+
+<section>
+<h2>5. Indicators of compromise (IOC tab)</h2>
+<img src="/static/help/en/05-report-ioc.png" alt="IOC tab">
+<ol>
+  <li>All matches against IOC feeds: type, value, sources, confidence, observation contexts, hosts.</li>
+  <li>Table filter (substring). Most report tables have the same filter.</li>
+  <li>Export the section to CSV.</li>
+  <li>The ⋯ button — <b>finding markup</b>: “Confirmed” / “False positive” / “Ignored”, or add to the global allowlist. False positives and allowlisted findings stop affecting the verdict — the report is rebuilt automatically. Right-click a value to copy it or check it on VirusTotal.</li>
+</ol>
+<p>The “Signatures”, “Files”, “Network activity”, “DNS”, “HTTP”, “TLS” and “Anomalies” tabs work the same way: grouping, filter, CSV, markup.</p>
+</section>
+
+<section>
+<h2>6. Network connections graph</h2>
+<img src="/static/help/en/06-report-graph.png" alt="Graph">
+<ol>
+  <li>Local hosts on the left, external addresses on the right; IOC addresses are highlighted in red. Edge width depends on traffic volume.</li>
+  <li>Zoom: mouse wheel (zooms to the cursor) or the −/⟲/+ buttons; drag the background to pan, drag nodes to untangle edges.</li>
+</ol>
+</section>
+
+<section>
+<h2>7. Compromise chain</h2>
+<img src="/static/help/en/07-chain.png" alt="Compromise chain">
+<ol>
+  <li>Findings laid out across MITRE ATT&CK attack stages in chronological order: recon → initial access → … → exfiltration → impact. Hosts seen on multiple stages are grouped in a separate block.</li>
+  <li><b>Ticket-ready chains</b>: prepared lines “host → indicator → address:port → file → hash → IOC sources” with a copy button — paste them into a ticket or an e-mail as is.</li>
+</ol>
+</section>
+
+<section>
+<h2>8. Indicators and rules</h2>
+<img src="/static/help/en/08-iocs.png" alt="Indicators and rules">
+<ol>
+  <li>Update IOC feeds (abuse.ch URLhaus/ThreatFox/Feodo/MalwareBazaar, MISP, OpenCTI) and Suricata rules (ET Open) with one button. The automatic update schedule is set in the config.</li>
+  <li>Additional rule sources: your own rule-set URLs (ET Pro, abuse.ch SSLBL, internal .rules).</li>
+  <li>Custom IOC lists: text files in the data directory; can be added right from the page.</li>
+  <li>Allowlist: indicators, signatures and heuristics excluded from the verdicts of all jobs.</li>
+</ol>
+<p>After updating the feeds, open the job and click “Re-match IOCs” — matches are refreshed without re-parsing the capture.</p>
+</section>

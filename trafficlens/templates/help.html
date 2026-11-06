@@ -1,0 +1,7 @@
+{% extends "layout.html" %}
+{% block title %}{{ L.nav_help }} — TrafficLens{% endblock %}
+{% block content %}
+<div class="help">
+{% include ['_help_' ~ lang ~ '.html', '_help_ru.html'] %}
+</div>
+{% endblock %}
