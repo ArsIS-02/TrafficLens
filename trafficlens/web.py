@@ -298,6 +298,11 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
                    state=worker.state(), tools=runner.tool_versions(cfg), abusech_key=bool(ic["abusech"]["auth_key"]),
                    rule_sources=runner.rule_sources(cfg), allow=db.allowlist())
 
+    @app.get("/help")
+    @require_login
+    def help_page():
+        return tpl("help.html", page="help")
+
     # ------------------------------------------------------------- API
     @app.post("/api/upload")
     @require_login

@@ -212,3 +212,7 @@ pre.log { background: var(--panel-2); border: 1px solid var(--line); border-radi
 .markbtn:hover { color: var(--accent); border-color: var(--accent); }
 tr.marked-fp td, tr.marked-ig td { opacity: .55; }
 tr.marked-fp td.markcell, tr.marked-ig td.markcell { opacity: 1; }
+.help { max-width: 980px; }
+.help section { margin-bottom: 36px; }
+.help img { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; display: block; margin: 10px 0; }
+.help code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }

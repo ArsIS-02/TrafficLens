@@ -899,3 +899,25 @@ def test_evidence_badges(env, tmp_path):
     card = c.get(f"/jobs/{jid}/host/{fx.WS}").text
     # язык карточки зависит от cookie тест-клиента — принимаем оба
     assert any(x in card for x in (">Факт<", ">Эвристика<", ">Fact<", ">Heuristic<"))
+
+
+def test_help_page(env):
+    """Встроенная инструкция: /help отдаёт RU/EN-версию по языку, ссылки в шапке, скриншоты на диске."""
+    from trafficlens.render import STATIC
+    from trafficlens.web import create_app
+
+    cfg, db = env
+    c = create_app(cfg, start_workers=False).test_client()
+    r = c.get("/help")
+    assert r.status_code == 200
+    assert "Инструкция администратора" in r.text and "/static/help/ru/01-login.png" in r.text
+    assert "Инструкция" in c.get("/").text  # ссылка в шапке
+    r = c.get("/help?lang=en")
+    assert "Administrator guide" in r.text and "/static/help/en/01-login.png" in r.text
+    assert "Guide" in c.get("/?lang=en").text
+    shots = ("01-login", "02-index", "03-report-top", "04-report-hosts",
+             "05-report-ioc", "06-report-graph", "07-chain", "08-iocs")
+    for lang in ("ru", "en"):
+        for n in shots:
+            p = STATIC / "help" / lang / f"{n}.png"
+            assert p.exists() and p.stat().st_size > 10000, (lang, n)
