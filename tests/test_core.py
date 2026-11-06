@@ -667,3 +667,48 @@ def test_virustotal_context_menu(env, tmp_path):
     assert "virustotal.com/gui/search/" in html and "Check on VirusTotal" in html
     html_ru = render_report(json.loads(json.dumps(rep, default=list)), lang="ru")
     assert "Проверить на VirusTotal" in html_ru
+
+
+def test_host_card(env, tmp_path):
+    """Карточка хоста: таймлайн из логов, IOC-срез, контакты; веб-страница и ссылки из отчёта."""
+    from collections import Counter
+
+    from trafficlens import hostcard, worker
+    from trafficlens.web import create_app
+
+    cfg, db = env
+    pcap = tmp_path / "x.pcap"
+    pcap.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid = worker.enqueue_file(cfg, db, pcap, "x.pcap", "upload", move=False)
+    fx.make_job(pipeline.job_dir(cfg, jid))
+    pipeline.rematch(cfg, db, jid)
+    db.update_job(jid, status="done")
+    job = db.job(jid)
+
+    card = hostcard.build(cfg, job, fx.WS)
+    assert card["local"] and card["name"] == "WS-01" and card["mac"] == "aa:bb:cc:00:11:22"
+    assert card["risk"] and card["risk"]["level"] == "high"
+    kinds = Counter(e["kind"] for e in card["events"])
+    for k in ("dns", "tls", "http", "file", "alert", "notice", "beacon", "upload", "cleartext", "tls_bad"):
+        assert kinds[k], k
+    ts = [e["ts"] for e in card["events"] if e["ts"]]  # события с меткой времени идут по возрастанию
+    assert ts == sorted(ts)
+    assert card["ioc_hits"] and any(h["value"] == "evil-c2.example" for h in card["ioc_hits"])
+    assert any(f["filename"] == "payload.exe" for f in card["files"])
+    ct = {c["ip"]: c for c in card["contacts"]}
+    assert ct["203.0.113.66"]["ioc"] and ct["203.0.113.66"]["name"] == "api.evil-c2.example"
+    assert card["totals"]["conns"] > 50
+    other = hostcard.build(cfg, job, "93.184.216.34")  # внешний хост — валидная карточка без IOC
+    assert other and not other["local"] and not other["ioc_hits"]
+
+    c = create_app(cfg, start_workers=False).test_client()
+    r = c.get(f"/jobs/{jid}/host/{fx.WS}")
+    assert r.status_code == 200 and "WS-01" in r.text and "payload.exe" in r.text and "Маяк" in r.text
+    r = c.get(f"/jobs/{jid}/host/{fx.WS}?lang=en")
+    assert "Event timeline" in r.text and "Beacon" in r.text
+    assert c.get(f"/jobs/{jid}/host/bad$ip").status_code == 404
+    # ссылка на карточку есть в веб-отчёте и отсутствует в автономном HTML
+    assert f"/jobs/{jid}/host/{fx.WS}" in c.get(f"/jobs/{jid}").text
+    rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
+    from trafficlens.render import render_report
+    assert f"/host/{fx.WS}" not in render_report(rep, embedded=False)

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, session, url_for
 
-from . import feeds, ioc_store, pipeline, render, runner, worker
+from . import feeds, hostcard, ioc_store, pipeline, render, runner, worker
 from .config import Config
 from .config import load as load_config
 from .db import DB
@@ -171,6 +171,17 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
             return render.render_report(rep, embedded=True, job=j, lang=client_lang())
         logtext = (jd / "job.log").read_text(encoding="utf-8", errors="replace")[-20000:] if (jd / "job.log").exists() else ""
         return tpl("job.html", page="jobs", job=j, log=logtext)
+
+    @app.get("/jobs/<job_id>/host/<ip>")
+    @require_login
+    def host_page(job_id, ip):
+        j = get_job(job_id)
+        if not re.match(r"^[0-9A-Fa-f.:]{3,45}$", ip):
+            abort(404)
+        card = hostcard.build(cfg, j, ip)
+        if card is None:
+            abort(404)
+        return tpl("host.html", page="jobs", job=j, c=card)
 
     @app.get("/jobs/<job_id>/report.html")
     @require_login
