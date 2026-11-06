@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, session, url_for
 
-from . import feeds, hostcard, ioc_store, pipeline, render, runner, worker
+from . import feeds, hostcard, ioc_store, killchain, pipeline, render, runner, worker
 from .config import Config
 from .config import load as load_config
 from .db import DB
@@ -182,6 +182,16 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         if card is None:
             abort(404)
         return tpl("host.html", page="jobs", job=j, c=card)
+
+    @app.get("/jobs/<job_id>/chain")
+    @require_login
+    def chain_page(job_id):
+        j = get_job(job_id)
+        p = pipeline.job_dir(cfg, job_id) / "report.json"
+        if not p.exists():
+            abort(404)
+        rep = json.loads(p.read_text(encoding="utf-8"))
+        return tpl("chain.html", page="jobs", job=j, ch=killchain.build(rep))
 
     @app.get("/jobs/<job_id>/report.html")
     @require_login

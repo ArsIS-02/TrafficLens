@@ -712,3 +712,44 @@ def test_host_card(env, tmp_path):
     rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
     from trafficlens.render import render_report
     assert f"/host/{fx.WS}" not in render_report(rep, embedded=False)
+
+
+def test_kill_chain(env, tmp_path):
+    """Цепочка компрометации: этапы из report.json, хосты на нескольких этапах, веб-страница RU/EN."""
+    from trafficlens import killchain, worker
+    from trafficlens.web import create_app
+
+    cfg, db = env
+    pcap = tmp_path / "x.pcap"
+    pcap.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid = worker.enqueue_file(cfg, db, pcap, "x.pcap", "upload", move=False)
+    fx.make_job(pipeline.job_dir(cfg, jid))
+    pipeline.rematch(cfg, db, jid)
+    db.update_job(jid, status="done")
+
+    rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
+    ch = killchain.build(rep)
+    st = {s["key"]: s for s in ch["stages"]}
+    assert [s["key"] for s in ch["stages"]] == ["recon", "initial", "execution", "privesc", "creds", "c2", "exfil", "impact"]
+    # фикстура: маячок + IOC -> C2, FTP-пароль -> учётные данные, выгрузка 40 МБ -> эксфильтрация
+    assert any(i["kind"] == "beacon" for i in st["c2"]["events"])
+    assert any(i["kind"] == "ioc" and i["title"] == "evil-c2.example" for i in st["c2"]["events"])
+    assert st["c2"]["first"] and st["c2"]["first"] <= st["c2"]["last"]
+    assert any(i["kind"] == "cleartext" for i in st["creds"]["events"])
+    assert any(i["kind"] == "upload" for i in st["exfil"]["events"])
+    assert not st["impact"]["events"]  # пустой этап тоже присутствует
+    assert ch["covered"] >= 3
+    # рабочая станция замечена минимум на трёх этапах цепочки
+    multi = {h["ip"]: h["stages"] for h in ch["hosts"]}
+    assert fx.WS in multi and len(multi[fx.WS]) >= 3
+
+    c = create_app(cfg, start_workers=False).test_client()
+    r = c.get(f"/jobs/{jid}/chain")
+    assert r.status_code == 200 and "Цепочка компрометации" in r.text and "Управление (C2)" in r.text
+    assert "203.0.113.66" in r.text and "TA0011" in r.text
+    r = c.get(f"/jobs/{jid}/chain?lang=en")
+    assert "Compromise chain" in r.text and "Exfiltration" in r.text
+    # кнопка перехода есть в веб-отчёте и отсутствует в автономном HTML
+    assert f"/jobs/{jid}/chain" in c.get(f"/jobs/{jid}").text
+    from trafficlens.render import render_report
+    assert "/chain" not in render_report(rep, embedded=False)
