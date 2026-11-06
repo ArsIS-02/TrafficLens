@@ -472,6 +472,21 @@ RU.update({
     "ev_alert": "Сигнатура", "ev_notice": "notice", "ev_beacon": "Маяк",
     "ev_upload": "Выгрузка", "ev_long": "Долгое соед.", "ev_unusual": "Порт",
     "ev_cleartext": "Cleartext", "ev_tls_bad": "TLS-сертификат", "ev_dns_sus": "DNS-подозр.",
+    "ev_ioc": "IOC",
+    "tab_chain": "Цепочка",
+    "chain_title": "Цепочка компрометации",
+    "chain_hint": "находки отчёта по этапам атаки (MITRE ATT&CK); внутри этапа события идут по времени",
+    "chain_no_data": "данных на этом этапе нет",
+    "chain_hosts_multi": "Хосты на нескольких этапах",
+    "chain_hosts_multi_hint": "участвуют в двух и более этапах — начните расследование с них",
+    "chain_stage_recon": "Разведка",
+    "chain_stage_initial": "Первичный доступ",
+    "chain_stage_execution": "Выполнение",
+    "chain_stage_privesc": "Эскалация привилегий",
+    "chain_stage_creds": "Учётные данные",
+    "chain_stage_c2": "Управление (C2)",
+    "chain_stage_exfil": "Эксфильтрация",
+    "chain_stage_impact": "Воздействие",
 })
 
 EN.update({
@@ -767,6 +782,21 @@ EN.update({
     "ev_alert": "Signature", "ev_notice": "notice", "ev_beacon": "Beacon",
     "ev_upload": "Upload", "ev_long": "Long conn", "ev_unusual": "Port",
     "ev_cleartext": "Cleartext", "ev_tls_bad": "TLS certificate", "ev_dns_sus": "Suspicious DNS",
+    "ev_ioc": "IOC",
+    "tab_chain": "Kill chain",
+    "chain_title": "Compromise chain",
+    "chain_hint": "report findings mapped to attack stages (MITRE ATT&CK); events within a stage are chronological",
+    "chain_no_data": "no data for this stage",
+    "chain_hosts_multi": "Hosts seen in multiple stages",
+    "chain_hosts_multi_hint": "involved in two or more stages — start the investigation here",
+    "chain_stage_recon": "Reconnaissance",
+    "chain_stage_initial": "Initial access",
+    "chain_stage_execution": "Execution",
+    "chain_stage_privesc": "Privilege escalation",
+    "chain_stage_creds": "Credentials",
+    "chain_stage_c2": "Command & control (C2)",
+    "chain_stage_exfil": "Exfiltration",
+    "chain_stage_impact": "Impact",
 })
 
 BUNDLES = {"ru": RU, "en": EN}
