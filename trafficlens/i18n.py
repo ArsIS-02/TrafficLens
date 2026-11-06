@@ -93,6 +93,10 @@ RU = {
     "graph_zoom_out": "Отдалить",
     "graph_zoom_reset": "Сбросить масштаб",
     "dl_csv_title": "Скачать CSV (UTF-8, открывается в Excel/LibreOffice)",
+    "ev_fact": "Факт",
+    "ev_fact_hint": "Прямое наблюдение в логах: совпадение с IOC, срабатывание сигнатуры, перехваченный файл или учётные данные",
+    "ev_heuristic": "Эвристика",
+    "ev_heuristic_hint": "Статистическая или пороговая оценка — возможны ложные срабатывания",
 }
 
 EN = {
@@ -184,6 +188,10 @@ EN = {
     "graph_zoom_out": "Zoom out",
     "graph_zoom_reset": "Reset zoom",
     "dl_csv_title": "Download CSV (UTF-8, opens in Excel/LibreOffice)",
+    "ev_fact": "Fact",
+    "ev_fact_hint": "Directly observed in logs: IOC match, signature hit, captured file or credentials",
+    "ev_heuristic": "Heuristic",
+    "ev_heuristic_hint": "Statistical or threshold-based estimate — false positives are possible",
 }
 
 RU.update({

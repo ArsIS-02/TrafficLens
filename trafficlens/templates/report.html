@@ -16,6 +16,7 @@
 {% macro empty(cols, text=None) %}<tr><td colspan="{{ cols }}" class="empty">{{ text or L.no_data }}</td></tr>{% endmacro %}
 {% macro tabbadge(n, cls='') %}{% if n %}<span class="badge {{ cls }}">{{ n }}</span>{% endif %}{% endmacro %}
 {% macro markedcls(it) %}{{ 'marked-fp' if it.status == 'false_positive' else 'marked-ig' if it.status == 'ignored' else '' }}{% endmacro %}
+{% macro evmark(ev) %}<span class="badge {{ 'ok' if ev == 'fact' else 'warn' }}" title="{{ L.get('ev_' ~ ev ~ '_hint', '') }}">{{ L.get('ev_' ~ ev, ev) }}</span>{% endmacro %}
 {% macro markcell(kind, key, it) -%}
 <td class="markcell">
   {%- if it.status %}<span class="badge {{ 'ok' if it.status == 'confirmed' else 'warn' if it.status == 'false_positive' else '' }}" data-mstatus-badge="1"{% if it.status_note %} title="{{ it.status_note }}"{% endif %}>{{ L.get('mark_' ~ it.status, it.status) }}</span>{% endif -%}
@@ -78,7 +79,7 @@
     <div class="icon">{{ '!' if v.level == 'critical' else '?' if v.level == 'suspicious' else '✓' }}</div>
     <div>
       <div class="title">{{ L.get('verdict_label_' ~ v.level, v.label) }}{% if v.score is defined and v.score %} · score {{ v.score }}{% endif %}</div>
-      {% if v.reasons %}<ul>{% for x in v.reasons %}<li>{{ x|lreason }}</li>{% endfor %}</ul>
+      {% if v.reasons %}<ul>{% for x in v.reasons %}<li>{{ x|lreason }} {{ x|evbadge }}</li>{% endfor %}</ul>
       {% else %}<div class="muted">{{ L.no_hits_banner.format(n=r.meta.ioc_count|int) }}</div>{% endif %}
     </div>
   </div>
@@ -103,7 +104,7 @@
       {% for h in r.priority_hosts[:10] %}<tr class="{{ 'hl' if h.level == 'high' }}">
         <td>{{ host(h.ip, h.name) }}{% if h.mac %}<div class="faint mono">{{ h.mac }}</div>{% endif %}</td>
         <td class="num" data-v="{{ h.score }}"><span class="badge {{ 'crit' if h.level == 'high' else 'warn' if h.level == 'medium' else 'info' }}">{{ h.score }}</span></td>
-        <td>{% for x in h.reasons %}<div>{{ x|lreason }}</div>{% endfor %}</td>
+        <td>{% for x in h.reasons %}<div>{{ x|lreason }} {{ x|evbadge }}</div>{% endfor %}</td>
         <td class="mono break">{{ h.indicators|join(', ') }}</td>
         <td class="mono break">{{ h.external|join(', ') }}</td>
       </tr>{% endfor %}
@@ -205,7 +206,7 @@
 <!-- ============================================================ IOC -->
 <section class="tabpane" id="tab-ioc">
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ioc_hits_title }}</h2><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/iocs.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-ioc') }}</div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ioc_hits_title }}</h2>{{ evmark('fact') }}<div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/iocs.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-ioc') }}</div>
     <div class="table-wrap"><table id="t-ioc">
       <thead><tr><th data-sort="text">{{ L.col_type }}</th><th data-sort="text">{{ L.col_indicator }}</th><th>{{ L.col_observed }}</th><th>{{ L.col_context }}</th><th>{{ L.col_sources }}</th>
         <th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_first_last }}</th><th>{{ L.col_hosts }}</th><th></th></tr></thead>
@@ -239,7 +240,7 @@
 <!-- ============================================================ SURICATA -->
 <section class="tabpane" id="tab-alerts">
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.alerts_title }}</h2><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/alerts.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-alerts') }}</div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.alerts_title }}</h2>{{ evmark('fact') }}<div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/alerts.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-alerts') }}</div>
     <div class="table-wrap"><table id="t-alerts">
       <thead><tr><th data-sort="num">{{ L.col_severity }}</th><th data-sort="text">{{ L.col_signature }}</th><th data-sort="text">{{ L.col_category }}</th><th>MITRE</th><th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_directions }}</th><th>{{ L.col_period }}</th><th></th></tr></thead>
       <tbody>
@@ -261,7 +262,7 @@
 <!-- ============================================================ ФАЙЛЫ -->
 <section class="tabpane" id="tab-files">
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.files_title }}</h2><span class="faint">{{ L.total_lbl }} {{ t.files }}{% if t.files > r.files|length %}, {{ L.shown_lbl }} {{ r.files|length }}{% endif %}</span><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/files.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-files') }}</div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.files_title }}</h2>{{ evmark('fact') }}<span class="faint">{{ L.total_lbl }} {{ t.files }}{% if t.files > r.files|length %}, {{ L.shown_lbl }} {{ r.files|length }}{% endif %}</span><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/files.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-files') }}</div>
     <div class="table-wrap"><table id="t-files">
       <thead><tr><th data-sort="text">{{ L.col_time }}</th><th data-sort="text">{{ L.col_proto }}</th><th>{{ L.col_sender_receiver }}</th><th data-sort="text">{{ L.col_direction }}</th><th data-sort="text">{{ L.col_name_url }}</th>
         <th data-sort="text">{{ L.col_type }}</th><th class="num" data-sort="num">{{ L.col_size }}</th><th>{{ L.col_hashes }}</th><th></th><th></th></tr></thead>
@@ -349,7 +350,7 @@
 <section class="tabpane" id="tab-dns">
   {% if r.dns.suspicious %}
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.dns_suspicious_t }}</h2><span class="faint">{{ L.dns_suspicious_hint }}</span></div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.dns_suspicious_t }}</h2>{{ evmark('heuristic') }}<span class="faint">{{ L.dns_suspicious_hint }}</span></div>
     <div class="table-wrap"><table>
       <thead><tr><th>{{ L.col_name }}</th><th>{{ L.col_reason }}</th><th class="num">{{ L.col_times }}</th><th>{{ L.col_clients }}</th><th></th></tr></thead>
       <tbody>{% for d in r.dns.suspicious %}<tr class="{{ markedcls(d) }}"><td class="mono break">{{ d.name }}</td><td>{{ d.reason|lreason }}</td><td class="num">{{ d.count }}</td><td class="mono">{{ d.clients|join(', ') }}</td>{{ markcell('dns', d.name, d) }}</tr>{% endfor %}</tbody>
@@ -405,7 +406,7 @@
 <section class="tabpane" id="tab-tls">
   {% if r.tls.invalid %}
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.tls_invalid_title }}</h2></div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.tls_invalid_title }}</h2>{{ evmark('fact') }}</div>
     <div class="table-wrap" style="max-height:320px"><table>
       <thead><tr><th>{{ L.col_time }}</th><th>{{ L.col_client }}</th><th>{{ L.col_server }}</th><th>SNI</th><th>{{ L.col_verify }}</th><th></th></tr></thead>
       <tbody>{% for x in r.tls.invalid %}<tr class="{{ markedcls(x) }}"><td class="nowrap">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td><td class="mono">{{ x.src }}</td><td class="mono">{{ x.dst }}</td><td class="mono break">{{ x.sni or '—' }}</td><td>{{ x.status }}</td>{{ markcell('tls', x.src ~ '>' ~ x.dst ~ '|' ~ (x.sni or ''), x) }}</tr>{% endfor %}</tbody>
@@ -429,7 +430,7 @@
 <!-- ============================================================ АНОМАЛИИ -->
 <section class="tabpane" id="tab-findings">
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.beacons_title }}</h2><span class="faint">{{ L.beacons_hint }}</span></div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.beacons_title }}</h2>{{ evmark('heuristic') }}<span class="faint">{{ L.beacons_hint }}</span></div>
     <div class="table-wrap" style="max-height:360px"><table>
       <thead><tr><th>{{ L.col_src }}</th><th>{{ L.col_dst }}</th><th class="num" data-sort="num">{{ L.col_conns }}</th><th class="num" data-sort="num">{{ L.col_interval }}</th><th class="num" data-sort="num">{{ L.col_jitter }}</th><th>{{ L.col_period }}</th><th></th></tr></thead>
       <tbody>{% for b in f.beacons %}<tr class="{{ 'hl' if b.ioc }} {{ markedcls(b) }}"><td class="mono">{{ b.src }}</td><td>{{ host(b.dst ~ ':' ~ b.dp, b.name, b.ioc) }}</td>
@@ -439,21 +440,21 @@
   </section>
   <div class="grid two">
     <section class="panel flush">
-      <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.uploads_title }}</h2></div>
+      <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.uploads_title }}</h2>{{ evmark('heuristic') }}</div>
       <div class="table-wrap" style="max-height:320px"><table>
         <thead><tr><th>{{ L.col_src }}</th><th>{{ L.col_receiver }}</th><th class="num">{{ L.col_sent }}</th><th class="num">{{ L.col_conns_short }}</th><th></th></tr></thead>
         <tbody>{% for u in f.large_uploads %}<tr class="{{ 'hl' if u.ioc }} {{ markedcls(u) }}"><td class="mono">{{ u.src }}</td><td>{{ host(u.dst, u.name, u.ioc) }}</td><td class="num">{{ u.bytes|bytes }}</td><td class="num">{{ u.conns }}</td>{{ markcell('upload', u.src ~ '>' ~ u.dst, u) }}</tr>{% else %}{{ empty(5, L.not_detected) }}{% endfor %}</tbody>
       </table></div>
     </section>
     <section class="panel flush">
-      <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.unusual_title }}</h2></div>
+      <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.unusual_title }}</h2>{{ evmark('heuristic') }}</div>
       <div class="table-wrap" style="max-height:320px"><table>
         <thead><tr><th>{{ L.col_proto }}</th><th>{{ L.col_dst }}</th><th class="num">{{ L.col_times }}</th><th></th></tr></thead>
         <tbody>{% for u in f.unusual_ports %}<tr class="{{ markedcls(u) }}"><td>{{ u.service }}</td><td>{{ host(u.dst ~ ':' ~ u.port, u.name) }}</td><td class="num">{{ u.count }}</td>{{ markcell('unusual', u.dst ~ ':' ~ u.port ~ '/' ~ u.proto, u) }}</tr>{% else %}{{ empty(4, L.not_detected) }}{% endfor %}</tbody>
       </table></div>
     </section>
     <section class="panel flush">
-      <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.cleartext_title }}</h2></div>
+      <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.cleartext_title }}</h2>{{ evmark('fact') }}</div>
       <div class="table-wrap" style="max-height:320px"><table>
         <thead><tr><th>{{ L.col_proto }}</th><th>{{ L.col_client_server }}</th><th>{{ L.col_user_count }}</th><th></th></tr></thead>
         <tbody>

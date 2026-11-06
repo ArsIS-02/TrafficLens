@@ -861,3 +861,41 @@ def test_csv_export(env, tmp_path):
     from trafficlens.render import render_report
     rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
     assert "export/" not in render_report(rep, embedded=False)
+
+
+def test_evidence_badges(env, tmp_path):
+    """Уверенность находок: бейджи «Факт»/«Эвристика» в причинах вердикта, риске хостов и разделах."""
+    from trafficlens import worker
+    from trafficlens.render import evidence_of_reason, render_report
+    from trafficlens.web import create_app
+
+    # классификация ключей причин
+    assert evidence_of_reason({"k": "vr_ioc"}) == "fact"
+    assert evidence_of_reason({"k": "hr_cleartext"}) == "fact"
+    assert evidence_of_reason({"k": "vr_beacon"}) == "heuristic"
+    assert evidence_of_reason({"k": "hr_dns"}) == "heuristic"
+    assert evidence_of_reason("Suricata sev1 ...") == ""  # строковые причины старого формата — без бейджа
+
+    cfg, db = env
+    pcap = tmp_path / "x.pcap"
+    pcap.write_bytes(b"\xd4\xc3\xb2\xa1" + b"\0" * 20)
+    jid = worker.enqueue_file(cfg, db, pcap, "x.pcap", "upload", move=False)
+    fx.make_job(pipeline.job_dir(cfg, jid))
+    pipeline.rematch(cfg, db, jid)
+    db.update_job(jid, status="done")
+
+    c = create_app(cfg, start_workers=False).test_client()
+    html = c.get(f"/jobs/{jid}").text
+    # в фикстуре есть и факты (IOC, сигнатура sev1, файл EICAR, cleartext), и эвристики (маячок, выгрузка)
+    assert ">Факт<" in html and ">Эвристика<" in html
+    assert "Статистическая или пороговая оценка" in html  # hint у эвристики
+    assert "Прямое наблюдение в логах" in html
+    en = c.get(f"/jobs/{jid}?lang=en").text
+    assert ">Fact<" in en and ">Heuristic<" in en
+    # бейджи есть и в автономном HTML, и в карточке хоста
+    rep = json.loads((pipeline.job_dir(cfg, jid) / "report.json").read_text(encoding="utf-8"))
+    standalone = render_report(rep, embedded=False)
+    assert ">Факт<" in standalone and ">Эвристика<" in standalone
+    card = c.get(f"/jobs/{jid}/host/{fx.WS}").text
+    # язык карточки зависит от cookie тест-клиента — принимаем оба
+    assert any(x in card for x in (">Факт<", ">Эвристика<", ">Fact<", ">Heuristic<"))
