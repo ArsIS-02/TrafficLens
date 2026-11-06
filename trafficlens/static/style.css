@@ -198,3 +198,7 @@ pre.log { background: var(--panel-2); border: 1px solid var(--line); border-radi
 .chain-head h2 { margin: 0; }
 .chain-ips { margin: 0 0 10px; font-size: 13px; }
 .chain-stage.empty h2, .chain-stage.empty .badge { opacity: .55; }
+.chain-tickets { display: flex; flex-direction: column; gap: 8px; padding: 14px 20px 16px; }
+.chain-ticket { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--panel-2); }
+.chain-ticket .mono { flex: 1; font-size: 12.5px; }
+.chain-ticket .btn { flex-shrink: 0; }

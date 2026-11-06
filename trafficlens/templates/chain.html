@@ -22,14 +22,28 @@
 </section>
 {% endif %}
 
+{% if ch.tickets %}
+<section class="panel flush">
+  <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.chain_tickets }}</h2><span class="faint">{{ L.chain_tickets_hint }}</span></div>
+  <div class="chain-tickets">
+    {% for t in ch.tickets %}
+    <div class="chain-ticket">
+      <span class="mono break">{{ t.text }}</span>
+      <button class="btn small copy" data-copy="{{ t.text }}">{{ L.copy_label }}</button>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 <div class="chain">
 {% for st in ch.stages %}
 <section class="panel chain-stage {{ 'empty' if not st.events }}">
   <div class="chain-rail"><span class="chain-dot {{ 'on' if st.events }}"></span></div>
   <div class="chain-head">
     <h2>{{ loop.index }}. {{ L.get('chain_stage_' ~ st.key, st.key) }}</h2>
-    <span class="badge accent">{{ st.tactic }} · {{ st.tactic_name }}</span>
-    {% for t in st.techs[:3] %}<span class="badge">{{ t }}</span>{% endfor %}
+    <a class="badge accent" href="https://attack.mitre.org/tactics/{{ st.tactic }}/" target="_blank" rel="noopener" title="{{ st.tactic_name }} — attack.mitre.org">{{ st.tactic }} · {{ st.tactic_name }}</a>
+    {% for t in st.techs[:3] %}<a class="badge" href="https://attack.mitre.org/techniques/{{ t.replace('.', '/') }}/" target="_blank" rel="noopener" title="attack.mitre.org">{{ t }}</a>{% endfor %}
     {% if st.first %}<span class="faint nowrap">{{ st.first|ts('%d.%m %H:%M:%S') }} — {{ st.last|ts('%H:%M:%S') }}</span>{% endif %}
   </div>
   {% if st.hosts %}<div class="chain-ips">{% for ip in st.hosts[:8] %}<a class="mono" href="/jobs/{{ job.id }}/host/{{ ip }}">{{ ip }}</a>{{ " · " if not loop.last }}{% endfor %}{% if st.hosts|length > 8 %} <span class="faint">+{{ st.hosts|length - 8 }}</span>{% endif %}</div>{% endif %}
@@ -44,7 +58,6 @@
     </tr>{% endfor %}
     </tbody>
   </table></div>
-  {% if st.truncated %}<div class="faint">{{ L.hc_truncated.format(n=50) }}</div>{% endif %}
   {% else %}<div class="empty" style="padding:10px;text-align:left">{{ L.chain_no_data }}</div>{% endif %}
 </section>
 {% endfor %}
