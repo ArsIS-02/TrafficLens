@@ -128,6 +128,17 @@
   window.addEventListener("hashchange", fromHash);
   fromHash();
 
+  // предзаполнение фильтров активной вкладки из ?flt= (переходы из карточки хоста)
+  (function applyPreFilter() {
+    const flt = new URLSearchParams(location.search).get("flt");
+    if (!flt) return;
+    const pane = document.querySelector(".tabpane.active");
+    (pane || document).querySelectorAll("input.filter").forEach(inp => {
+      inp.value = flt;
+      inp.dispatchEvent(new Event("input"));
+    });
+  })();
+
   // фильтр: <input class="filter" data-filter="table-id">
   document.querySelectorAll("input.filter").forEach(inp => {
     inp.addEventListener("input", () => {
