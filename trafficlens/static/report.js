@@ -128,17 +128,6 @@
   window.addEventListener("hashchange", fromHash);
   fromHash();
 
-  // предзаполнение фильтров активной вкладки из ?flt= (переходы из карточки хоста)
-  (function applyPreFilter() {
-    const flt = new URLSearchParams(location.search).get("flt");
-    if (!flt) return;
-    const pane = document.querySelector(".tabpane.active");
-    (pane || document).querySelectorAll("input.filter").forEach(inp => {
-      inp.value = flt;
-      inp.dispatchEvent(new Event("input"));
-    });
-  })();
-
   // фильтр: <input class="filter" data-filter="table-id">
   document.querySelectorAll("input.filter").forEach(inp => {
     inp.addEventListener("input", () => {
@@ -150,6 +139,18 @@
       });
     });
   });
+
+  // предзаполнение фильтров активной вкладки из ?flt= (переходы из карточки хоста)
+  // важно: после навешивания обработчиков выше, иначе событие input уйдёт в никуда
+  (function applyPreFilter() {
+    const flt = new URLSearchParams(location.search).get("flt");
+    if (!flt) return;
+    const pane = document.querySelector(".tabpane.active");
+    (pane || document).querySelectorAll("input.filter").forEach(inp => {
+      inp.value = flt;
+      inp.dispatchEvent(new Event("input"));
+    });
+  })();
 
   // сортировка по клику на заголовок (th[data-sort] = num|text)
   document.querySelectorAll("table").forEach(tbl => {

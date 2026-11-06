@@ -943,6 +943,9 @@ def test_hostcard_report_links(env, tmp_path):
     assert f"/jobs/{jid}?flt={fx.WS}#net" in card
     assert f"/jobs/{jid}?flt={fx.WS}#files" in card
     assert "?flt=evil-c2.example#ioc" in card
-    # report.js подхватывает ?flt= и проставляет фильтры активной вкладки
+    # report.js подхватывает ?flt= и проставляет фильтры активной вкладки;
+    # важно: applyPreFilter вызывается ПОСЛЕ навешивания обработчиков input.filter,
+    # иначе событие input уходит в никуда и строки не фильтруются
     js = (STATIC / "report.js").read_text(encoding="utf-8")
     assert 'get("flt")' in js
+    assert js.find("applyPreFilter") > js.find('addEventListener("input"')
