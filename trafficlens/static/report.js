@@ -298,3 +298,13 @@
 
   document.addEventListener("DOMContentLoaded", initGraph);
 })();
+
+/* служебные файлы TLS свёрнуты в таблице «Файлы» */
+document.addEventListener("click", function (e) {
+  const b = e.target.closest("[data-toggle-svc]");
+  if (!b) return;
+  const tb = document.getElementById(b.dataset.toggleSvc);
+  if (!tb) return;
+  tb.hidden = !tb.hidden;
+  b.textContent = (tb.hidden ? "▸ " : "▾ ") + b.textContent.replace(/^[▸▾]\s*/, "");
+});

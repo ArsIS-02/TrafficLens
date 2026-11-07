@@ -66,7 +66,7 @@
   <button class="tab" data-tab="graph">{{ L.tab_graph }} {{ tabbadge(r.graph.links|length) }}</button>
   <button class="tab" data-tab="dns">DNS {{ tabbadge(r.dns.suspicious|length, 'warn') }}</button>
   <button class="tab" data-tab="http">HTTP</button>
-  <button class="tab" data-tab="tls">TLS {{ tabbadge(r.tls.invalid|length, 'warn') }}</button>
+  <button class="tab" data-tab="tls">TLS {{ tabbadge(tls_strong(r.tls.invalid)|length, 'warn') }}</button>
   {% set nf = f.beacons|length + f.large_uploads|length + f.cleartext_auth|length + f.unusual_ports|length %}
   <button class="tab" data-tab="findings">{{ L.tab_findings }} {{ tabbadge(nf, 'warn') }}</button>
   <button class="tab" data-tab="zeek">Zeek</button>
@@ -81,6 +81,7 @@
       <div class="title">{{ L.get('verdict_label_' ~ v.level, v.label) }}{% if v.score is defined and v.score %} · score {{ v.score }}{% endif %}</div>
       {% if v.reasons %}<ul>{% for x in v.reasons %}<li>{{ x|lreason }} {{ x|evbadge }}</li>{% endfor %}</ul>
       {% else %}<div class="muted">{{ L.no_hits_banner.format(n=r.meta.ioc_count|int) }}</div>{% endif %}
+      {% if v.gated %}<div class="note">{{ L.verdict_gated }}</div>{% endif %}
     </div>
   </div>
 
@@ -241,6 +242,7 @@
 <section class="tabpane" id="tab-alerts">
   <section class="panel flush">
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.alerts_title }}</h2>{{ evmark('fact') }}<div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/alerts.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-alerts') }}</div>
+    {% if r.alerts_suppressed %}<div class="note" style="padding:0 20px 10px">{{ L.alerts_suppressed_note.format(n=t.alerts_suppressed|int, sigs=r.alerts_suppressed|map(attribute='signature')|join(', ')) }}</div>{% endif %}
     <div class="table-wrap"><table id="t-alerts">
       <thead><tr><th data-sort="num">{{ L.col_severity }}</th><th data-sort="text">{{ L.col_signature }}</th><th data-sort="text">{{ L.col_category }}</th><th>MITRE</th><th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_directions }}</th><th>{{ L.col_period }}</th><th></th></tr></thead>
       <tbody>
@@ -259,29 +261,33 @@
   </section>
 </section>
 
-<!-- ============================================================ ФАЙЛЫ -->
-<section class="tabpane" id="tab-files">
-  <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.files_title }}</h2>{{ evmark('fact') }}<span class="faint">{{ L.total_lbl }} {{ t.files }}{% if t.files > r.files|length %}, {{ L.shown_lbl }} {{ r.files|length }}{% endif %}</span><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/files.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-files') }}</div>
-    <div class="table-wrap"><table id="t-files">
-      <thead><tr><th data-sort="text">{{ L.col_time }}</th><th data-sort="text">{{ L.col_proto }}</th><th>{{ L.col_sender_receiver }}</th><th data-sort="text">{{ L.col_direction }}</th><th data-sort="text">{{ L.col_name_url }}</th>
-        <th data-sort="text">{{ L.col_type }}</th><th class="num" data-sort="num">{{ L.col_size }}</th><th>{{ L.col_hashes }}</th><th></th><th></th></tr></thead>
-      <tbody>
-      {% for x in r.files %}<tr class="{{ 'hl' if x.ioc }} {{ markedcls(x) }}">
+{% macro filerow(x) %}<tr class="{{ 'hl' if x.ioc }} {{ markedcls(x) }}">
         <td class="nowrap" data-v="{{ x.ts }}">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td>
         <td>{{ x.proto }}</td>
         <td class="mono nowrap">{{ x.sender }}<div>→ {{ x.receiver }}</div></td>
         <td>{{ x.direction|ldir }}</td>
         <td class="break">{{ x.filename or '—' }}{% if x.url %}<div class="faint">{{ x.url[:160] }}</div>{% endif %}
           {% if x.ioc %}<div><span class="badge crit">{{ x.ioc[0].info }}</span></div>{% endif %}</td>
-        <td>{{ x.mime }}</td>
-        <td class="num" data-v="{{ x.size }}">{{ x.size|bytes }}{% if x.missing %}<div class="faint">{{ L.missing_lbl }} {{ x.missing|bytes }}</div>{% endif %}</td>
+        <td>{{ x.mime or x.mime_guess }}{% if not x.mime and x.mime_guess %} <span class="faint" title="{{ L.mime_guess_hint }}">*</span>{% endif %}</td>
+        <td class="num" data-v="{{ x.size }}">{{ x.size|bytes }}{% if x.missing %}<div class="faint">{{ L.missing_lbl }} {{ x.missing|bytes }}</div>{% endif %}{% if x.cutoff %}<div><span class="badge warn" title="{{ L.cutoff_hint }}">{{ L.cutoff_lbl }}</span></div>{% endif %}{% if x.repeat and x.repeat > 1 %}<div class="faint" title="{{ L.repeat_hint }}">×{{ x.repeat }}</div>{% endif %}</td>
         <td class="mono" style="font-size:11px">{% if x.sha256 %}<div class="copy" data-copy="{{ x.sha256 }}" title="SHA256">{{ x.sha256[:16] }}…</div>{% endif %}
           {% if x.md5 %}<div class="copy faint" data-copy="{{ x.md5 }}" title="MD5">md5 {{ x.md5[:12] }}…</div>{% endif %}</td>
         <td>{% if embedded and x.extracted %}<a class="btn small" href="/jobs/{{ job.id }}/files/{{ x.extracted }}" title="{{ L.zip_title }}">ZIP</a>{% endif %}</td>
         {{ markcell('file', x.sha256 or x.filename, x) }}
-      </tr>{% else %}{{ empty(10, L.no_files) }}{% endfor %}
+      </tr>{% endmacro %}
+<!-- ============================================================ ФАЙЛЫ -->
+<section class="tabpane" id="tab-files">
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.files_title }}</h2>{{ evmark('fact') }}<span class="faint">{{ L.total_lbl }} {{ t.files }}{% if t.files_unique is defined and t.files_unique != t.files %} · {{ L.files_unique_lbl }} {{ t.files_unique }}{% endif %}{% if t.files_service %} · {{ L.files_service_lbl }} {{ t.files_service }}{% endif %}{% if (t.files_unique or t.files) > r.files|length %}, {{ L.shown_lbl }} {{ r.files|length }}{% endif %}</span><div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/files.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-files') }}</div>
+    <div class="table-wrap"><table id="t-files">
+      <thead><tr><th data-sort="text">{{ L.col_time }}</th><th data-sort="text">{{ L.col_proto }}</th><th>{{ L.col_sender_receiver }}</th><th data-sort="text">{{ L.col_direction }}</th><th data-sort="text">{{ L.col_name_url }}</th>
+        <th data-sort="text">{{ L.col_type }}</th><th class="num" data-sort="num">{{ L.col_size }}</th><th>{{ L.col_hashes }}</th><th></th><th></th></tr></thead>
+      <tbody>
+      {% for x in r.files if not x.service %}{{ filerow(x) }}{% else %}{{ empty(10, L.no_files if not r.files else L.no_files_main) }}{% endfor %}
       </tbody>
+      {% set svc = r.files|selectattr('service')|list %}
+      {% if svc %}<tbody><tr class="svc-toggle"><td colspan="10"><button type="button" class="linkbtn" data-toggle-svc="t-files-svc">▸ {{ L.files_service_summary.format(n=svc|length) }}</button></td></tr></tbody>
+      <tbody id="t-files-svc" class="svc-rows" hidden>{% for x in svc %}{{ filerow(x) }}{% endfor %}</tbody>{% endif %}
     </table></div>
   </section>
   {% if embedded %}<p class="faint">{{ L.zip_note }}</p>{% endif %}
@@ -348,6 +354,17 @@
 
 <!-- ============================================================ DNS -->
 <section class="tabpane" id="tab-dns">
+  {% if r.meta.dns_absent %}<div class="banner">{{ L.dns_absent_banner }}</div>{% endif %}
+  {% set edns = (r.findings.encrypted_dns or []) %}
+  {% if edns %}
+  <section class="panel flush">
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.enc_dns_title }}</h2>{{ evmark('heuristic') }}<span class="faint">{{ L.enc_dns_hint }}</span></div>
+    <div class="table-wrap" style="max-height:300px"><table>
+      <thead><tr><th>{{ L.col_client }}</th><th>{{ L.col_server }}</th><th>{{ L.col_proto }}</th><th class="num">{{ L.col_times }}</th><th class="num">{{ L.col_bytes }}</th></tr></thead>
+      <tbody>{% for d in edns %}<tr><td class="mono">{{ d.src }}</td><td>{{ host(d.dst ~ ':' ~ d.dp, d.name) }}</td><td>{{ d.kind }}</td><td class="num">{{ d.count }}</td><td class="num" data-v="{{ d.bytes }}">{{ d.bytes|bytes }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  {% endif %}
   {% if r.dns.suspicious %}
   <section class="panel flush">
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.dns_suspicious_t }}</h2>{{ evmark('heuristic') }}<span class="faint">{{ L.dns_suspicious_hint }}</span></div>
@@ -409,7 +426,7 @@
     <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.tls_invalid_title }}</h2>{{ evmark('fact') }}</div>
     <div class="table-wrap" style="max-height:320px"><table>
       <thead><tr><th>{{ L.col_time }}</th><th>{{ L.col_client }}</th><th>{{ L.col_server }}</th><th>SNI</th><th>{{ L.col_verify }}</th><th></th></tr></thead>
-      <tbody>{% for x in r.tls.invalid %}<tr class="{{ markedcls(x) }}"><td class="nowrap">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td><td class="mono">{{ x.src }}</td><td class="mono">{{ x.dst }}</td><td class="mono break">{{ x.sni or '—' }}</td><td>{{ x.status }}</td>{{ markcell('tls', x.src ~ '>' ~ x.dst ~ '|' ~ (x.sni or ''), x) }}</tr>{% endfor %}</tbody>
+      <tbody>{% for x in r.tls.invalid %}<tr class="{{ markedcls(x) }}"><td class="nowrap">{{ x.ts|ts('%d.%m %H:%M:%S') }}</td><td class="mono">{{ x.src }}</td><td class="mono">{{ x.dst }}</td><td class="mono break">{{ x.sni or '—' }}</td><td>{{ x.status }}{% if (x.weak if x.weak is defined else tls_is_weak(x.status)) %} <span class="badge" title="{{ L.tls_weak_hint }}">{{ L.tls_weak_lbl }}</span>{% endif %}</td>{{ markcell('tls', x.src ~ '>' ~ x.dst ~ '|' ~ (x.sni or ''), x) }}</tr>{% endfor %}</tbody>
     </table></div>
   </section>
   {% endif %}

@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+from . import quality
 from .mitre import TACTICS, alert_tags
 
 # Порядок этапов цепочки: ключ -> тактика ATT&CK. Пустые этапы показываются
@@ -145,6 +146,8 @@ def build(rep: dict) -> dict:
 
     # ---- сигнатуры Suricata: категория -> тактика/техника (mitre.alert_tags)
     for a in rep.get("alerts") or []:
+        if quality.alert_is_noise(a.get("signature", "")):
+            continue
         hosts = _pair_hosts(a.get("pairs"))
         for tactic, tech in alert_tags(a.get("category", "")):
             stage = _TACTIC_STAGE.get(tactic)
@@ -169,9 +172,11 @@ def build(rep: dict) -> dict:
         detail = f'user {c["user"]} · ' if c.get("user") else ""
         add("creds", c.get("ts", 0), "cleartext", c.get("proto", ""),
             f'{detail}→ {c.get("dst", "")}', [c.get("src", ""), c.get("dst", "")], tech="T1040")
-    for t in (rep.get("tls") or {}).get("invalid") or []:
+    beacon_src = {b.get("src") for b in (f.get("beacons") or [])}
+    for t in quality.tls_strong((rep.get("tls") or {}).get("invalid") or []):
         add("c2", t.get("ts", 0), "tls_bad", t.get("sni", "") or t.get("dst", ""),
-            t.get("status", ""), [t.get("src", ""), t.get("dst", "")], ioc=True, tech="T1573")
+            t.get("status", ""), [t.get("src", ""), t.get("dst", "")], ioc=False,
+            tech="T1573" if t.get("src") in beacon_src else "")
     for d in (rep.get("dns") or {}).get("suspicious") or []:
         add("c2", 0, "dns_sus", d.get("name", ""), f'{d.get("reason", "")} · ×{d.get("count", 0)}',
             d.get("clients") or [], ioc=True, tech="T1071.004")

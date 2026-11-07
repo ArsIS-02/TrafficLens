@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import os
 
+from . import quality
 from .i18n import bundle as i18n_bundle
 from .render import fmt_bytes, fmt_dur, fmt_ts, loc_ctx, loc_dir, loc_ioc, loc_reason, loc_sev
 
@@ -192,7 +193,7 @@ def render_pdf(rep: dict, lang: str = "ru") -> bytes:
     finding(L["tls_invalid_title"],
             [L["col_client"], L["col_server"], "SNI", L["col_verify"]],
             [[x.get("src"), x.get("dst"), x.get("sni") or "—", x.get("status")]
-             for x in (rep.get("tls", {}).get("invalid") or [])[:50]])
+             for x in quality.tls_strong(rep.get("tls", {}).get("invalid") or [])[:50]])
     finding(L["dns_suspicious_t"],
             [L["col_name"], L["col_reason"], L["col_times"]],
             [[d.get("name"), loc_reason(L, d.get("reason")), d.get("count")]

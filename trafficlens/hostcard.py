@@ -10,6 +10,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from . import quality
 from . import report as report_mod
 from .config import Config
 from .db import DB  # noqa: F401  (тип для аннотаций)
@@ -138,7 +139,8 @@ def build(cfg: Config, job: dict, ip: str) -> dict | None:
     for t in (rep.get("tls") or {}).get("invalid") or []:
         if ip in (t.get("src"), t.get("dst")):
             events.append({"ts": t.get("ts", 0), "kind": "tls_bad", "peer": t.get("dst") if t.get("src") == ip else t.get("src"),
-                           "sni": t.get("sni", ""), "validation": t.get("status", ""), "ioc": True})
+                           "sni": t.get("sni", ""), "validation": t.get("status", ""),
+                           "ioc": not (t.get("weak") if "weak" in t else quality.tls_is_weak(t.get("status", "")))})
     for d in (rep.get("dns") or {}).get("suspicious") or []:
         if ip in (d.get("clients") or []):
             events.append({"ts": 0, "kind": "dns_sus", "q": d.get("name", ""), "reason": d.get("reason"), "ioc": True})

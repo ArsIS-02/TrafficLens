@@ -865,6 +865,62 @@ EN.update({
     "mk_tls": "TLS", "mk_dns": "DNS",
 })
 
+# ---- качество сигналов (0.2): вердикт, шум, служебные файлы, DNS
+RU.update({
+    "verdict_gated": "Score выше порога компрометации, но нет ни IOC, ни сигнатур высокой важности, ни файлов из базы — итог ограничен «подозрительно».",
+    "vr_capped_tls_invalid": "ещё {n} TLS-находок не добавили очков: достигнут потолок категории ({cap})",
+    "vr_capped_dns_suspicious": "ещё {n} подозрительных DNS-имён не добавили очков: потолок категории ({cap})",
+    "vr_capped_beacon": "ещё {n} маячков не добавили очков: потолок категории ({cap})",
+    "vr_capped_large_upload": "ещё {n} выгрузок не добавили очков: потолок категории ({cap})",
+    "vr_capped_cleartext_auth": "ещё {n} логинов в открытом виде не добавили очков: потолок категории ({cap})",
+    "vr_capped_alert_sev_2": "ещё {n} сигнатур средней важности не добавили очков: потолок категории ({cap})",
+    "vr_capped_alert_sev_3": "ещё {n} сигнатур низкой важности не добавили очков: потолок категории ({cap})",
+    "alerts_suppressed_note": "Скрыто как шум: {n} срабатываний ({sigs}). Обычно это checksum offload на машине захвата; список — suricata.suppress_signatures.",
+    "mime_guess_hint": "тип определён по расширению имени файла",
+    "cutoff_lbl": "обрезан",
+    "cutoff_hint": "файл больше zeek.extract_max_mb и сохранён не полностью; хэши Zeek считает по всему потоку",
+    "repeat_hint": "столько раз передавалось одинаковое содержимое",
+    "no_files_main": "Только служебные файлы — см. ниже",
+    "files_service_summary": "Служебные файлы TLS (OCSP, сертификаты, CRL): {n}",
+    "files_unique_lbl": "уникальных",
+    "files_service_lbl": "служебных",
+    "dns_absent_banner": "В записи нет DNS-запросов: имена взяты из TLS SNI и HTTP Host. Возможные причины — DNS-кеш, DoH/DoT или фильтр захвата.",
+    "enc_dns_title": "Зашифрованный DNS (DoH/DoT)",
+    "enc_dns_hint": "обращения к известным резолверам DNS-over-HTTPS и на порт 853 — DNS-запросы этих клиентов в записи не видны",
+    "tls_weak_lbl": "слабый признак",
+    "tls_weak_hint": "обычно это неполная цепочка или корень, которого нет в хранилище Zeek (старые записи) — не влияет на вердикт",
+    "note_spamhaus": "угнанные и «чёрные» сети (CIDR), без ключа",
+    "note_et_compromised": "скомпрометированные IP от Emerging Threats, без ключа",
+    "note_tor": "выходные узлы Tor — контекст, низкая уверенность; включается iocs.public.tor_exits",
+})
+EN.update({
+    "verdict_gated": "The score is above the compromise threshold, but there are no IOC hits, high-severity signatures or known-bad files — the verdict is capped at “suspicious”.",
+    "vr_capped_tls_invalid": "{n} more TLS findings added no points: category cap reached ({cap})",
+    "vr_capped_dns_suspicious": "{n} more suspicious DNS names added no points: category cap ({cap})",
+    "vr_capped_beacon": "{n} more beacons added no points: category cap ({cap})",
+    "vr_capped_large_upload": "{n} more uploads added no points: category cap ({cap})",
+    "vr_capped_cleartext_auth": "{n} more cleartext logins added no points: category cap ({cap})",
+    "vr_capped_alert_sev_2": "{n} more medium-severity signatures added no points: category cap ({cap})",
+    "vr_capped_alert_sev_3": "{n} more low-severity signatures added no points: category cap ({cap})",
+    "alerts_suppressed_note": "Hidden as noise: {n} hits ({sigs}). Usually checksum offload on the capture host; list: suricata.suppress_signatures.",
+    "mime_guess_hint": "type inferred from the file name extension",
+    "cutoff_lbl": "truncated",
+    "cutoff_hint": "file exceeds zeek.extract_max_mb and was saved partially; Zeek computes hashes over the whole stream",
+    "repeat_hint": "times the same content was transferred",
+    "no_files_main": "Only service files — see below",
+    "files_service_summary": "TLS service files (OCSP, certificates, CRL): {n}",
+    "files_unique_lbl": "unique",
+    "files_service_lbl": "service",
+    "dns_absent_banner": "The capture has no DNS queries: names come from TLS SNI and HTTP Host. Possible reasons: DNS cache, DoH/DoT or a capture filter.",
+    "enc_dns_title": "Encrypted DNS (DoH/DoT)",
+    "enc_dns_hint": "connections to known DNS-over-HTTPS resolvers and to port 853 — DNS queries of these clients are not visible in the capture",
+    "tls_weak_lbl": "weak signal",
+    "tls_weak_hint": "usually an incomplete chain or a root missing from Zeek's store (old captures) — does not affect the verdict",
+    "note_spamhaus": "hijacked and blacklisted networks (CIDR), no key needed",
+    "note_et_compromised": "compromised IPs from Emerging Threats, no key needed",
+    "note_tor": "Tor exit nodes — context, low confidence; enable with iocs.public.tor_exits",
+})
+
 BUNDLES = {"ru": RU, "en": EN}
 
 

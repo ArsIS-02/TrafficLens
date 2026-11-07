@@ -5,6 +5,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -178,6 +179,33 @@ def save_rule_sources(cfg: Config, sources: list[dict]) -> None:
     tmp.replace(p)
 
 
+ET_OPEN_URL = "https://rules.emergingthreats.net/open/suricata-{ver}/emerging.rules.tar.gz"
+DEFAULT_DISABLE = ["re:invalid checksum"]
+
+
+def suricata_version(cfg: Config) -> str:
+    """'7.0.10' из `suricata -V`; пусто, если не удалось определить."""
+    sb = suricata_bin(cfg)
+    if not sb:
+        return ""
+    try:
+        r = subprocess.run([sb, "-V"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    m = re.search(r"version\s+(\d+\.\d+\.\d+)", r.stdout + r.stderr)
+    return m.group(1) if m else ""
+
+
+def write_disable_conf(cfg: Config) -> Path:
+    """disable.conf для suricata-update: правила, которые дают только шум (checksum offload и т. п.)."""
+    rules = cfg["suricata"].get("disable_rules")
+    rules = DEFAULT_DISABLE if rules is None else rules
+    p = cfg.rules_dir / "disable.conf"
+    p.write_text("# Создаётся TrafficLens из suricata.disable_rules — правьте конфиг, а не этот файл.\n"
+                 + "".join(f"{r}\n" for r in rules if r), encoding="utf-8")
+    return p
+
+
 def update_rules(cfg: Config) -> tuple[bool, str]:
     su = shutil.which("suricata-update")
     if not su:
@@ -186,8 +214,15 @@ def update_rules(cfg: Config) -> tuple[bool, str]:
     data = cfg.rules_dir / "data"
     out.mkdir(parents=True, exist_ok=True)
     data.mkdir(parents=True, exist_ok=True)
-    cmd = [su, "--data-dir", str(data), "--output", str(out), "--no-test", "--no-reload"]
-    for s in rule_sources(cfg):
+    cmd = [su, "--data-dir", str(data), "--output", str(out), "--no-test", "--no-reload",
+           "--disable-conf", str(write_disable_conf(cfg))]
+    extra = rule_sources(cfg)
+    if extra:
+        # --url заменяет источник по умолчанию, поэтому ET Open добавляем явно
+        ver = suricata_version(cfg)
+        if ver:
+            cmd += ["--url", ET_OPEN_URL.format(ver=ver)]
+    for s in extra:
         cmd += ["--url", s["url"]]
     if Path(cfg["suricata"]["config"]).exists():
         cmd += ["--suricata-conf", cfg["suricata"]["config"]]

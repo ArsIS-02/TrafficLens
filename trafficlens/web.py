@@ -322,6 +322,9 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
             {"id": "abusech-threatfox", "name": "abuse.ch ThreatFox", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["threatfox"], "note": et("note_threatfox")},
             {"id": "abusech-feodo", "name": "abuse.ch Feodo Tracker", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["feodo"], "note": et("note_feodo")},
             {"id": "abusech-malwarebazaar", "name": "abuse.ch MalwareBazaar", "enabled": ic["abusech"]["enabled"] and ic["abusech"]["malwarebazaar"], "note": et("note_bazaar")},
+            {"id": "spamhaus-drop", "name": "Spamhaus DROP", "enabled": bool((ic.get("public") or {}).get("spamhaus_drop")), "note": et("note_spamhaus")},
+            {"id": "et-compromised", "name": "ET compromised IPs", "enabled": bool((ic.get("public") or {}).get("et_compromised")), "note": et("note_et_compromised")},
+            {"id": "tor-exits", "name": "Tor exit nodes", "enabled": bool((ic.get("public") or {}).get("tor_exits")), "note": et("note_tor")},
             {"id": "misp", "name": "MISP", "enabled": ic["misp"]["enabled"], "note": ic["misp"]["url"] or et("note_not_configured")},
             {"id": "opencti", "name": "OpenCTI", "enabled": ic["opencti"]["enabled"], "note": ic["opencti"]["url"] or et("note_not_configured")},
         ]

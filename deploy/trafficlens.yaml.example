@@ -24,6 +24,8 @@ zeek:
 suricata:
   enabled: true
   rules_update_hours: 24  # ET Open через suricata-update
+  disable_rules: ["re:invalid checksum"]       # отключаются при обновлении правил (disable.conf)
+  suppress_signatures: ["invalid checksum"]    # сворачиваются в отчёте как шум, в том числе в старых задачах
 
 iocs:
   update_hours: 6
@@ -35,6 +37,10 @@ iocs:
     threatfox: true
     feodo: true           # работает и без ключа
     malwarebazaar: true
+  public:                 # открытые списки без ключа
+    spamhaus_drop: true
+    et_compromised: true
+    tor_exits: false      # выходные узлы Tor — контекст, низкая уверенность
   misp:
     enabled: false
     url: "https://misp.example"
@@ -59,3 +65,13 @@ heuristics:
   beacon_ignore_ports: [53, 123, 137, 138, 5353, 67, 68]
   large_upload_mb: 20
   long_conn_hours: 1
+
+verdict:
+  thresholds: {suspicious: 30, critical: 80}
+  caps:                   # потолок вклада категории в score; null — без потолка
+    tls_invalid: 20
+    dns_suspicious: 15
+    beacon: 45
+  critical_requires: [ioc_hit, alert_sev_1, file_ioc]   # без них итог не выше «подозрительно»
+  # tls_weak_statuses:    # статусы проверки сертификата, которые не дают очков (по умолчанию — неполная цепочка)
+  #   - unable to get local issuer certificate

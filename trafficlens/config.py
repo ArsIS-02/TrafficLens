@@ -35,6 +35,10 @@ DEFAULTS: dict = {
         "config": "/etc/suricata/suricata.yaml",
         "rules_update_hours": 24,
         "timeout_min": 120,
+        # правила, которые suricata-update отключает (disable.conf): checksum offload даёт тысячи ложных алертов
+        "disable_rules": ["re:invalid checksum"],
+        # сигнатуры, которые отчёт сворачивает в «шум» (подстрока, без учёта регистра) — и для старых задач
+        "suppress_signatures": ["invalid checksum"],
     },
     "iocs": {
         "update_hours": 6,
@@ -48,6 +52,12 @@ DEFAULTS: dict = {
             "threatfox_days": 7,
             "feodo": True,
             "malwarebazaar": True,
+        },
+        # Открытые списки без ключа.
+        "public": {
+            "spamhaus_drop": True,   # Spamhaus DROP: угнанные/«чёрные» сети, CIDR
+            "et_compromised": True,  # Emerging Threats: скомпрометированные IP
+            "tor_exits": False,      # выходные узлы Tor — контекст, а не компрометация
         },
         "misp": {
             "enabled": False,
@@ -80,6 +90,10 @@ DEFAULTS: dict = {
     # Скоринговый вердикт (report.verdict).
     "verdict": {
         "confidence_scale": True,   # вес IOC-hit умножается на confidence/100
+        # потолок вклада категории в score (report.DEFAULT_CAPS); null — без потолка
+        "caps": {},
+        # без находок этих категорий итог не выше «подозрительно»
+        "critical_requires": ["ioc_hit", "alert_sev_1", "file_ioc"],
         "weights": {"ioc_hit": 40, "alert_sev_1": 40, "alert_sev_2": 15,
                     "file_ioc": 25, "beacon": 15, "large_upload": 10,
                     "cleartext_auth": 20, "tls_invalid": 10, "dns_suspicious": 5},
