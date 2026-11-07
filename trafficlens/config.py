@@ -87,6 +87,30 @@ DEFAULTS: dict = {
         "keep_verdicts": ["critical"],
         "dry_run": False,
     },
+    # Имена локальных хостов в отчётах.
+    "names": {
+        "ptr": True,             # обратные DNS-записи (FreeIPA ведёт их для машин домена)
+        "ptr_timeout": 3.0,      # общий лимит на запросы PTR при сборке отчёта, секунд
+        "max_lookups": 256,
+        "strip_domain": False,   # True — показывать server, а не server.corp.example
+        "hosts_file": "",        # пусто — <data_dir>/config/hosts.yaml
+    },
+    # Отправка находок в Graylog по GELF.
+    "gelf": {
+        "enabled": False,
+        "host": "",              # из rootless-контейнера Graylog на том же хосте — host.containers.internal
+        "port": 12201,
+        "protocol": "udp",       # udp | tcp
+        "min_level": "suspicious",   # с какого итога слать сообщение verdict
+        "send_ioc_hits": True,       # по сообщению на каждое совпадение с IOC
+        "base_url": "",          # адрес веб-интерфейса для ссылок на отчёт, например https://trafficlens.apps.example
+        "source": "trafficlens",     # поле host в GELF
+    },
+    # Выгрузка IOC для lookup table Graylog (адаптер «DSV File from HTTP»).
+    "export": {
+        "token": "",             # пусто — выгрузка выключена; или TL_EXPORT_TOKEN
+        "min_conf": 50,
+    },
     # Ретропроверка: новые IOC сверяются с трафиком прошлых задач.
     "retro": {
         "enabled": True,
@@ -128,6 +152,10 @@ ENV_MAP = {
     "TL_OPENCTI_URL": ("iocs", "opencti", "url"),
     "TL_OPENCTI_TOKEN": ("iocs", "opencti", "token"),
     "TL_PORT": ("port",),
+    "TL_GELF_HOST": ("gelf", "host"),
+    "TL_GELF_PORT": ("gelf", "port"),
+    "TL_BASE_URL": ("gelf", "base_url"),
+    "TL_EXPORT_TOKEN": ("export", "token"),
 }
 
 
@@ -188,6 +216,8 @@ def load(data_dir: str | None = None) -> Config:
             for p in path[:-1]:
                 node = node[p]
             node[path[-1]] = int(val) if path[-1] == "port" else val
+    if merged["gelf"].get("host") and "enabled" not in (user.get("gelf") or {}):
+        merged["gelf"]["enabled"] = True   # TL_GELF_HOST задан — отправку включаем
     # ключи заданы — фиды включаем, если пользователь явно не выключил
     if merged["iocs"]["misp"]["url"] and merged["iocs"]["misp"]["key"] and "enabled" not in (user.get("iocs", {}).get("misp", {})):
         merged["iocs"]["misp"]["enabled"] = True

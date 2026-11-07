@@ -76,6 +76,17 @@
 </div>
 </div>
 
+<section class="panel" id="graylog-panel">
+  <div class="panel-head"><h2>{{ L.graylog_title }}</h2><div class="spacer"></div>
+    {% if gelf_cfg.enabled and gelf_cfg.host %}<button class="btn" data-action="gelf-test">{{ L.gelf_test_btn }}</button>{% endif %}</div>
+  <dl class="kv">
+    <dt>GELF</dt><dd>{% if gelf_cfg.enabled and gelf_cfg.host %}<span class="badge ok">{{ L.on_lbl }}</span> <code>{{ gelf_cfg.protocol or 'udp' }}://{{ gelf_cfg.host }}:{{ gelf_cfg.port or 12201 }}</code> · {{ L.gelf_min_level }}: {{ L.get('verdict_' ~ (gelf_cfg.min_level or 'suspicious'), gelf_cfg.min_level) }}
+      {% else %}<span class="badge">{{ L.disabled }}</span> <span class="faint">{{ L.gelf_off_hint }}</span>{% endif %}</dd>
+    {% if gelf_status %}<dt>{{ L.gelf_last }}</dt><dd>{{ gelf_status.ts|ts }} · {% if gelf_status.ok %}<span class="badge ok">{{ L.ok }}</span> {{ L.gelf_sent_n.format(n=gelf_status.sent|int) }}{% else %}<span class="badge crit">{{ L.error }}</span> <span class="muted">{{ gelf_status.error }}</span>{% endif %}</dd>{% endif %}
+    <dt>{{ L.export_lbl }}</dt><dd>{% if export_on %}<span class="badge ok">{{ L.on_lbl }}</span> <code>/export/iocs.csv?token=…</code> <span class="faint">{{ L.export_hint }}</span>{% else %}<span class="badge">{{ L.disabled }}</span> <span class="faint">{{ L.export_off_hint }}</span>{% endif %}</dd>
+  </dl>
+</section>
+
 <section class="panel" id="retro-panel">
   <div class="panel-head"><h2>{{ L.retro_panel_title }}</h2><div class="spacer"></div>
     <button class="btn" data-action="retro-run" {{ 'disabled' if 'retro' in state.busy }}>{{ L.retro_run_new }}</button>

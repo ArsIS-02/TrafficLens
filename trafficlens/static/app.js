@@ -72,6 +72,8 @@ window.TL = (function () {
       } else if (a === "rulesrc-del") {
         if (!await confirm(tr("del_src_confirm", { name: b.dataset.url }), { danger: true, ok: tr("delete") })) return;
         await api("/api/rules/sources/delete", { body: { url: b.dataset.url } }); location.reload();
+      } else if (a === "gelf-test") {
+        b.disabled = true; await api("/api/gelf/test"); toast(tr("gelf_test_ok")); setTimeout(() => location.reload(), 600);
       } else if (a === "retro-ack") {
         await api("/api/retro/ack", { body: { job: job || null } }); toast(tr("retro_ack_ok")); setTimeout(() => location.reload(), 400);
       } else if (a === "retro-run") {

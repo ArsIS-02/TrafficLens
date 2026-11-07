@@ -7,6 +7,7 @@ import shutil
 import time
 from pathlib import Path
 
+from . import gelf
 from . import report as report_mod
 from . import retro
 from . import runner
@@ -46,6 +47,19 @@ def build_report(cfg: Config, db: DB, job: dict) -> dict:
     return s
 
 
+def notify(cfg: Config, db: DB, job_id: str, retro_rows: list[dict] | None = None) -> int:
+    """Отправить в Graylog (GELF) то, что по задаче ещё не отправлялось. Ошибки не пробрасываются."""
+    if not gelf.enabled(cfg):
+        return 0
+    try:
+        job = db.job(job_id)
+        rep = json.loads((job_dir(cfg, job_id) / "report.json").read_text(encoding="utf-8"))
+        return gelf.notify_job(cfg, db, job, rep, retro_rows)
+    except Exception:  # noqa: BLE001
+        log.exception("gelf notify %s", job_id)
+        return 0
+
+
 def _json_default(o):
     if isinstance(o, set):
         return sorted(o)
@@ -79,6 +93,7 @@ def process(cfg: Config, db: DB, job: dict) -> None:
             retro.ensure(jd)
         except Exception:  # noqa: BLE001
             log.exception("observables %s", job["id"])
+        notify(cfg, db, job["id"])
         log.info("job %s done in %.1fs", job["id"], time.time() - t0)
     except Exception as e:  # noqa: BLE001
         log.exception("job %s failed", job["id"])
@@ -87,13 +102,15 @@ def process(cfg: Config, db: DB, job: dict) -> None:
         db.update_job(job["id"], status="error", stage="", finished=time.time(), error=str(e)[:500])
 
 
-def rematch(cfg: Config, db: DB, job_id: str) -> dict:
+def rematch(cfg: Config, db: DB, job_id: str, send: bool = True) -> dict:
     """Пересобрать отчёт по уже готовым логам с актуальной базой IOC."""
     job = db.job(job_id)
     if not job or not (job_dir(cfg, job_id) / "zeek").exists():
         raise FileNotFoundError("нет логов для пересборки")
     s = build_report(cfg, db, job)
     db.update_job(job_id, summary=s)
+    if send:
+        notify(cfg, db, job_id)
     return s
 
 

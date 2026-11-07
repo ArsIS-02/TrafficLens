@@ -18,7 +18,7 @@ from . import runner as runner_mod
 from .ioc_store import IOCIndex, Match
 from .ioc_types import TYPE_LABELS, norm_url
 from .markup import skipped as _marked_skip
-from . import quality
+from . import names, quality
 
 STD_PORTS = {
     "http": {80, 8080, 8000, 8008, 8081, 8888, 3128, 591},
@@ -532,11 +532,19 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
             bb[(s_ - lo) // bucket] += v
         timeline = {"bucket": bucket, "start": lo, "conns": cc, "bytes": bb}
 
+    # имена локальных хостов: hosts.yaml администратора, затем то, что видно в записи, затем PTR
+    fixed_names = names.load_hosts(cfg)
+    local_ips = sorted(ip for ip in talkers if ip and is_local(ip) and not _is_mcast(ip))
+    ptr_names = names.resolve_ptr(cfg, [ip for ip in local_ips if ip not in fixed_names
+                                        and not ip_names.get(ip) and not host_info.get(ip, {}).get("hostname")])
+
     def name_of(ip: str) -> str:
+        if ip in fixed_names:
+            return fixed_names[ip]
         c = ip_names.get(ip)
         if c:
             return c.most_common(1)[0][0]
-        return host_info.get(ip, {}).get("hostname", "")
+        return host_info.get(ip, {}).get("hostname", "") or ptr_names.get(ip, "")
 
     ioc_ips = {o for h in hits.items.values() for o in h["observed"]}
 

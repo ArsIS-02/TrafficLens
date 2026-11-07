@@ -82,3 +82,24 @@ retro:                    # ретропроверка новых IOC по тр�
   enabled: true
   days: 30
   max_jobs: 2000
+
+names:                    # имена локальных хостов; сначала <данные>/config/hosts.yaml
+  ptr: true               # обратный DNS
+  ptr_timeout: 3.0
+  max_lookups: 256
+  strip_domain: false     # true — host.corp.local → host
+  hosts_file: ""
+
+gelf:                     # отправка в Graylog (docs/graylog.md)
+  enabled: false          # включается сам, если задан TL_GELF_HOST
+  host: ""                # или TL_GELF_HOST; из rootless-контейнера — host.containers.internal
+  port: 12201             # или TL_GELF_PORT
+  protocol: udp           # udp | tcp
+  min_level: suspicious   # suspicious | critical
+  send_ioc_hits: true
+  base_url: ""            # или TL_BASE_URL — для ссылок на отчёт
+  source: trafficlens
+
+export:                   # GET /export/iocs.csv для lookup table Graylog
+  token: ""               # или TL_EXPORT_TOKEN; пусто — выгрузка выключена
+  min_conf: 50

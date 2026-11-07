@@ -183,7 +183,9 @@ def run(cfg: Config, db: DB, full: bool = False) -> dict:
             hit_jobs.append(j["id"])
     for jid in hit_jobs:
         try:
-            pipeline.rematch(cfg, db, jid)
+            pipeline.rematch(cfg, db, jid, send=False)
+            # сначала retro_hit (с временем в трафике), затем ioc_hit по пересобранному отчёту
+            pipeline.notify(cfg, db, jid, retro_rows=[h for h in db.retro_hits(job_id=jid) if h["detected"] == started])
         except Exception:  # noqa: BLE001
             log.exception("rematch %s", jid)
     status["jobs_hit"] = len(hit_jobs)

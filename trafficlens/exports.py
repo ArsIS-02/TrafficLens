@@ -83,3 +83,33 @@ def build_csv(rep: dict, what: str, lang: str = "ru") -> bytes | None:
             ])
         return _csv(rows)
     return None
+
+
+# ---------------------------------------------------------------- IOC для Graylog
+EXPORT_TYPES = ("ip", "domain", "url", "md5", "sha1", "sha256", "ja3", "ja4")
+
+
+def iocs_csv(db, types: set | None = None, min_conf: int = 0) -> bytes:
+    """Одна строка на (тип, значение): источники через «|», описание, максимальная уверенность.
+
+    Без BOM: файл читает не человек, а адаптер Graylog «DSV File from HTTP»
+    (ключ — колонка value, значение — info или source).
+    """
+    want = [t for t in EXPORT_TYPES if not types or t in types]
+    if types and "cidr" in types:
+        want.append("cidr")
+    if not want:
+        want = list(EXPORT_TYPES)
+    marks = ",".join("?" * len(want))
+    with db.conn() as c:
+        rows = c.execute(
+            f"SELECT type, value, GROUP_CONCAT(source, '|') AS sources, MAX(confidence) AS conf, "
+            f"MAX(CASE WHEN info != '' THEN info END) AS info FROM iocs WHERE type IN ({marks}) "
+            f"GROUP BY type, value HAVING MAX(confidence) >= ? ORDER BY type, value",
+            (*want, int(min_conf))).fetchall()
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["value", "type", "source", "info", "confidence"])
+    for r in rows:
+        w.writerow([r["value"], r["type"], r["sources"], (r["info"] or "").replace("\n", " ")[:300], r["conf"]])
+    return buf.getvalue().encode("utf-8")

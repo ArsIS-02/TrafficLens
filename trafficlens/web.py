@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, session, url_for
 
-from . import exports, feeds, hostcard, ioc_store, killchain, listfeeds, markup, pipeline, render, runner, worker
+from . import exports, feeds, gelf, hostcard, ioc_store, killchain, listfeeds, markup, pipeline, render, runner, worker
 from .config import Config
 from .config import load as load_config
 from .db import DB
@@ -343,7 +343,9 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
                    state=worker.state(), tools=runner.tool_versions(cfg), abusech_key=bool(ic["abusech"]["auth_key"]),
                    rule_sources=runner.rule_sources(cfg), allow=db.allowlist(),
                    lists=listfeeds.all_feeds(cfg), list_source=listfeeds.source_name,
-                   retro_status=db.kv_get("retro_status") or {}, retro_cfg=cfg.get("retro") or {})
+                   retro_status=db.kv_get("retro_status") or {}, retro_cfg=cfg.get("retro") or {},
+                   gelf_cfg=cfg.get("gelf") or {}, gelf_status=db.kv_get("gelf_status") or {},
+                   export_on=bool((cfg.get("export") or {}).get("token")))
 
     @app.get("/help")
     @require_login
@@ -632,6 +634,32 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     @app.get("/healthz")
     def healthz():
         return jsonify(ok=True)
+
+    # ------------------------------------------------------------- выгрузка IOC для Graylog
+    @app.get("/export/iocs.csv")
+    def export_iocs():
+        """CSV для lookup table Graylog (адаптер «DSV File from HTTP»). Доступ — по токену, без сессии."""
+        token = (cfg.get("export") or {}).get("token") or ""
+        given = request.args.get("token") or request.headers.get("X-TrafficLens-Token") or ""
+        if not token:
+            abort(404)
+        if not hmac.compare_digest(given, token):
+            time.sleep(0.5)
+            abort(403)
+        types = {t for t in (request.args.get("types") or "").split(",") if t} or None
+        try:
+            min_conf = int(request.args.get("min_conf", (cfg.get("export") or {}).get("min_conf", 50)))
+        except ValueError:
+            min_conf = 50
+        body = exports.iocs_csv(db, types=types, min_conf=min_conf)
+        return Response(body, mimetype="text/csv; charset=utf-8",
+                        headers={"Cache-Control": "no-store", "Content-Disposition": "inline; filename=trafficlens-iocs.csv"})
+
+    @app.post("/api/gelf/test")
+    @require_login
+    def api_gelf_test():
+        ok, err = gelf.test_message(cfg, db)
+        return (jsonify(ok=True), 200) if ok else (jsonify(error=et(err) if err.startswith("gelf_err") else err), 400)
 
     @app.after_request
     def security_headers(resp):

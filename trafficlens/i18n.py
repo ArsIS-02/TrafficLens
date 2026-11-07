@@ -1033,6 +1033,36 @@ EN.update({
     "list_added_ok": "List added, loading…"
 })
 
+# ---- интеграция с Graylog
+RU.update({
+    "graylog_title": "Интеграция с Graylog",
+    "gelf_test_btn": "Отправить тестовое сообщение",
+    "on_lbl": "включено",
+    "gelf_min_level": "итог от",
+    "gelf_off_hint": "задайте TL_GELF_HOST (и при необходимости TL_GELF_PORT) в trafficlens.env",
+    "gelf_last": "Последняя отправка",
+    "gelf_sent_n": "сообщений: {n}",
+    "export_lbl": "Выгрузка IOC",
+    "export_hint": "адаптер Graylog «DSV File from HTTP», ключ — колонка value",
+    "export_off_hint": "задайте TL_EXPORT_TOKEN в trafficlens.env",
+    "gelf_test_ok": "Тестовое сообщение отправлено",
+    "gelf_err_disabled": "GELF не настроен"
+})
+EN.update({
+    "graylog_title": "Graylog integration",
+    "gelf_test_btn": "Send a test message",
+    "on_lbl": "enabled",
+    "gelf_min_level": "verdict from",
+    "gelf_off_hint": "set TL_GELF_HOST (and TL_GELF_PORT if needed) in trafficlens.env",
+    "gelf_last": "Last delivery",
+    "gelf_sent_n": "messages: {n}",
+    "export_lbl": "IOC export",
+    "export_hint": "Graylog “DSV File from HTTP” adapter, key column: value",
+    "export_off_hint": "set TL_EXPORT_TOKEN in trafficlens.env",
+    "gelf_test_ok": "Test message sent",
+    "gelf_err_disabled": "GELF is not configured"
+})
+
 BUNDLES = {"ru": RU, "en": EN}
 
 
