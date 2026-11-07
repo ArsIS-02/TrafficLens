@@ -11,6 +11,7 @@ from pathlib import Path
 
 import requests
 
+from . import listfeeds
 from .config import Config
 from .db import DB
 from .ioc_store import Indicator, save_source
@@ -353,6 +354,8 @@ def update_all(cfg: Config, db: DB, only: str | None = None) -> dict[str, str]:
             ("abusech-feodo", ab.get("feodo"), lambda: fetch_feodo(key), "replace"),
             ("abusech-malwarebazaar", ab.get("malwarebazaar"), lambda: fetch_malwarebazaar(key), "accumulate"),
         ]
+    for lf in listfeeds.all_feeds(cfg):
+        plan.append((listfeeds.source_name(lf["id"]), lf["enabled"], (lambda f=lf: listfeeds.fetch(f)), "replace"))
     pub = ic.get("public") or {}
     plan += [
         ("spamhaus-drop", pub.get("spamhaus_drop"), fetch_spamhaus_drop, "replace"),

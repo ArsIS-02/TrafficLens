@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, session, url_for
 
-from . import exports, feeds, hostcard, ioc_store, killchain, markup, pipeline, render, runner, worker
+from . import exports, feeds, hostcard, ioc_store, killchain, listfeeds, markup, pipeline, render, runner, worker
 from .config import Config
 from .config import load as load_config
 from .db import DB
@@ -190,7 +190,17 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         if any(flt.values()):
             jobs = _filter_jobs(jobs, flt)
         return tpl("index.html", page="jobs", jobs=jobs, q=q, flt=flt, capture=worker.capture_status(cfg),
-                   tools=runner.tool_versions(cfg), max_mb=cfg["max_upload_mb"])
+                   tools=runner.tool_versions(cfg), max_mb=cfg["max_upload_mb"],
+                   retro=_retro_rows(db.retro_hits(unacked=True, limit=20)), retro_jobs=db.retro_unacked_jobs())
+
+    def _retro_rows(rows: list[dict]) -> list[dict]:
+        names: dict[str, str] = {}
+        for r in rows:
+            if r["job_id"] not in names:
+                j = db.job(r["job_id"])
+                names[r["job_id"]] = j["filename"] if j else r["job_id"]
+            r["filename"] = names[r["job_id"]]
+        return rows
 
     @app.get("/jobs/<job_id>")
     @require_login
@@ -199,6 +209,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         jd = pipeline.job_dir(cfg, job_id)
         if j["status"] == "done" and (jd / "report.json").exists():
             rep = json.loads((jd / "report.json").read_text(encoding="utf-8"))
+            j["retro"] = db.retro_hits(job_id=job_id)
             return render.render_report(rep, embedded=True, job=j, lang=client_lang())
         logtext = (jd / "job.log").read_text(encoding="utf-8", errors="replace")[-20000:] if (jd / "job.log").exists() else ""
         return tpl("job.html", page="jobs", job=j, log=logtext)
@@ -330,7 +341,9 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         ]
         return tpl("iocs.html", page="iocs", sources=sources, feeds=db.feeds(), stats=ioc_store.stats(db), custom=custom,
                    state=worker.state(), tools=runner.tool_versions(cfg), abusech_key=bool(ic["abusech"]["auth_key"]),
-                   rule_sources=runner.rule_sources(cfg), allow=db.allowlist())
+                   rule_sources=runner.rule_sources(cfg), allow=db.allowlist(),
+                   lists=listfeeds.all_feeds(cfg), list_source=listfeeds.source_name,
+                   retro_status=db.kv_get("retro_status") or {}, retro_cfg=cfg.get("retro") or {})
 
     @app.get("/help")
     @require_login
@@ -505,10 +518,84 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         runner.save_rule_sources(cfg, [s for s in runner.rule_sources(cfg) if s["url"] != url])
         return jsonify(ok=True)
 
+    # ------------------------------------------------------------- открытые списки угроз
+    def _bg_update(source: str) -> None:
+        import threading
+        threading.Thread(target=worker.run_ioc_update, args=(cfg, db, source), daemon=True).start()
+
+    @app.post("/api/iocs/lists/toggle")
+    @require_login
+    def api_lists_toggle():
+        data = request.get_json(silent=True) or {}
+        fid = str(data.get("id") or "")
+        feed = next((f for f in listfeeds.all_feeds(cfg) if f["id"] == fid), None)
+        if not feed:
+            return jsonify(error=et("err_list_unknown")), 404
+        if feed.get("locked"):
+            return jsonify(error=et("err_list_locked")), 409
+        on = bool(data.get("enabled"))
+        listfeeds.set_enabled(cfg, fid, on)
+        if on:
+            _bg_update(listfeeds.source_name(fid))
+        else:
+            db.delete_source(listfeeds.source_name(fid))   # индикаторы выключенного списка не должны срабатывать
+        return jsonify(ok=True)
+
+    @app.post("/api/iocs/lists")
+    @require_login
+    def api_lists_add():
+        data = request.get_json(silent=True) or {}
+        url = (data.get("url") or "").strip()[:500]
+        name = (data.get("name") or "").strip()[:80]
+        typ = data.get("type") or None
+        if not re.match(r"^https?://\S+$", url):
+            return jsonify(error=et("err_bad_url")), 400
+        if typ not in listfeeds.TYPES:
+            return jsonify(error=et("err_list_type")), 400
+        if any(f["url"] == url for f in listfeeds.all_feeds(cfg)):
+            return jsonify(error=et("err_src_exists")), 400
+        try:
+            conf = int(data.get("conf") or 60)
+        except (TypeError, ValueError):
+            conf = 60
+        item = listfeeds.add_custom(cfg, name, url, typ, conf)
+        _bg_update(listfeeds.source_name(item["id"]))
+        return jsonify(ok=True, id=item["id"])
+
+    @app.post("/api/iocs/lists/delete")
+    @require_login
+    def api_lists_delete():
+        fid = str((request.get_json(silent=True) or {}).get("id") or "")
+        if not listfeeds.delete_custom(cfg, fid):
+            return jsonify(error=et("err_list_unknown")), 404
+        db.delete_source(listfeeds.source_name(fid))
+        return jsonify(ok=True)
+
+    # ------------------------------------------------------------- ретропроверка
+    @app.post("/api/retro/run")
+    @require_login
+    def api_retro_run():
+        if "retro" in worker.state()["busy"]:
+            return jsonify(error=et("err_retro_running")), 409
+        full = bool((request.get_json(silent=True) or {}).get("full"))
+        import threading
+        threading.Thread(target=worker.run_retro, args=(cfg, db, full), daemon=True).start()
+        return jsonify(ok=True)
+
+    @app.post("/api/retro/ack")
+    @require_login
+    def api_retro_ack():
+        jid = (request.get_json(silent=True) or {}).get("job") or None
+        if jid and not JOB_RE.match(str(jid)):
+            abort(404)
+        db.retro_ack(jid)
+        return jsonify(ok=True)
+
     @app.get("/api/status")
     @require_login
     def api_status():
-        return jsonify(state=worker.state(), feeds=db.feeds(), stats=ioc_store.stats(db))
+        return jsonify(state=worker.state(), feeds=db.feeds(), stats=ioc_store.stats(db),
+                       retro=db.kv_get("retro_status") or {})
 
     @app.get("/api/iocs/lookup")
     @require_login

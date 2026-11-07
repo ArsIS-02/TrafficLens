@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from . import report as report_mod
+from . import retro
 from . import runner
 from .config import Config
 from .db import DB
@@ -73,6 +74,11 @@ def process(cfg: Config, db: DB, job: dict) -> None:
         db.update_job(job["id"], stage="match")
         s = build_report(cfg, db, job)
         db.update_job(job["id"], status="done", stage="", finished=time.time(), summary=s)
+        try:   # наблюдаемые значения для ретропроверки — один раз, пока логи «горячие»
+            (jd / retro.OBS_FILE).unlink(missing_ok=True)
+            retro.ensure(jd)
+        except Exception:  # noqa: BLE001
+            log.exception("observables %s", job["id"])
         log.info("job %s done in %.1fs", job["id"], time.time() - t0)
     except Exception as e:  # noqa: BLE001
         log.exception("job %s failed", job["id"])

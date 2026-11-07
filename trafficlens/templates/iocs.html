@@ -76,6 +76,61 @@
 </div>
 </div>
 
+<section class="panel" id="retro-panel">
+  <div class="panel-head"><h2>{{ L.retro_panel_title }}</h2><div class="spacer"></div>
+    <button class="btn" data-action="retro-run" {{ 'disabled' if 'retro' in state.busy }}>{{ L.retro_run_new }}</button>
+    <button class="btn" data-action="retro-run" data-full="1" {{ 'disabled' if 'retro' in state.busy }}>{{ L.retro_run_full }}</button></div>
+  <div class="faint" style="margin-bottom:10px">{{ L.retro_panel_hint.format(days=retro_cfg.get('days', 30)) }}{% if retro_cfg.get('enabled') is sameas false %} <span class="badge">{{ L.disabled }}</span>{% endif %}</div>
+  {% if 'retro' in state.busy %}<div><span class="dot busy"></span>{{ L.retro_running }}</div>
+  {% elif retro_status %}
+  <dl class="kv">
+    <dt>{{ L.retro_last_run }}</dt><dd>{{ retro_status.ts|ts }}{% if retro_status.full %} · {{ L.retro_full_lbl }}{% endif %}{% if retro_status.took is defined %} · {{ retro_status.took }} s{% endif %}</dd>
+    <dt>{{ L.retro_checked }}</dt><dd>{{ L.retro_checked_v.format(iocs=retro_status.new_iocs|int, jobs=retro_status.jobs|int) }}</dd>
+    <dt>{{ L.retro_found }}</dt><dd>{% if retro_status.hits %}<strong style="color:var(--crit)">{{ retro_status.hits }}</strong> · {{ L.retro_in_jobs.format(n=retro_status.jobs_hit) }} · <a href="/">{{ L.retro_see_main }}</a>{% else %}0{% endif %}</dd>
+  </dl>
+  {% else %}<div class="muted">{{ L.retro_never }}</div>{% endif %}
+</section>
+
+<section class="panel" id="lists-panel">
+  <div class="panel-head"><h2>{{ L.lists_title }}</h2><span class="faint">{{ L.lists_hint }}</span></div>
+  {% for kind in ['c2', 'phishing', 'attackers', 'custom'] %}{% set group = lists|selectattr('kind', 'equalto', kind)|list %}
+  {% if group %}
+  <h3>{{ L.get('lists_kind_' ~ kind, kind) }}</h3>
+  {% if kind == 'attackers' %}<div class="faint" style="margin-bottom:6px">{{ L.lists_attackers_hint }}</div>{% endif %}
+  {% for lf in group %}{% set src = list_source(lf.id) %}{% set f = feeds.get(src) %}{% set c = stats.by_source.get(src, {}) %}
+  <div class="ioc-src">
+    <div>
+      <strong>{{ lf.get('name_' ~ lang) or lf.name }}</strong>
+      {% if not lf.enabled %}<span class="badge">{{ L.disabled }}</span>
+      {% elif not f %}<span class="badge">{{ L.never_loaded }}</span>
+      {% elif f.ok %}<span class="badge ok">{{ L.ok }}</span>{% else %}<span class="badge crit">{{ L.error }}</span>{% endif %}
+      {% if lf.locked %}<span class="badge" title="{{ L.lists_locked_hint }}">config</span>{% endif %}
+      <div class="faint mono break" style="font-size:11.5px">{{ lf.url }}</div>
+      {% if f and lf.enabled %}<div class="muted" style="font-size:12px">{{ f.updated|ts('%d.%m %H:%M') }} · {{ f.message|lfeed }}</div>{% endif %}
+      {% if c and lf.enabled %}<div style="margin-top:4px">{% for t, n in c|dictsort %}<span class="badge accent" style="margin-right:4px">{{ t }}: {{ n|int }}</span>{% endfor %}</div>{% endif %}
+    </div>
+    <div class="nowrap">
+      {% if lf.site %}<a class="btn small" href="{{ lf.site }}" target="_blank" rel="noopener">↗</a>{% endif %}
+      {% if not lf.locked %}<button class="btn small" data-action="list-toggle" data-id="{{ lf.id }}" data-on="{{ '0' if lf.enabled else '1' }}">{{ L.lists_disable if lf.enabled else L.lists_enable }}</button>{% endif %}
+      {% if lf.custom %}<button class="btn small danger" data-action="list-del" data-id="{{ lf.id }}" data-name="{{ lf.name }}">{{ L.delete }}</button>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}{% endfor %}
+  <h3>{{ L.lists_add_title }}</h3>
+  <form id="list-form" style="display:flex;gap:8px;flex-wrap:wrap">
+    <input type="url" id="list-url" placeholder="{{ L.lists_url_ph }}" style="flex:3;min-width:260px" required>
+    <input type="text" id="list-name" placeholder="{{ L.lists_name_ph }}" style="flex:2;min-width:140px">
+    <select id="list-type" title="{{ L.lists_type }}">
+      <option value="">{{ L.lists_type_auto }}</option><option value="ip">IP</option><option value="domain">{{ L.get('ioc_type_domain', 'domain') }}</option>
+      <option value="url">URL</option><option value="md5">MD5</option><option value="sha1">SHA1</option><option value="sha256">SHA256</option>
+    </select>
+    <input type="number" id="list-conf" min="1" max="100" value="60" title="{{ L.lists_conf }}" style="width:80px">
+    <button class="btn primary" type="submit">{{ L.add }}</button>
+  </form>
+  <div class="faint" style="margin-top:6px">{{ L.lists_add_hint }}</div>
+</section>
+
 <section class="panel">
   <div class="panel-head"><h2>{{ L.custom_lists }}</h2><div class="spacer"></div>
     <select id="custom-name">{% for n in custom %}<option value="{{ n }}">{{ n }}</option>{% endfor %}<option value="__new">{{ L.new_list }}</option></select>

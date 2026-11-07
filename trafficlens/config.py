@@ -87,6 +87,12 @@ DEFAULTS: dict = {
         "keep_verdicts": ["critical"],
         "dry_run": False,
     },
+    # Ретропроверка: новые IOC сверяются с трафиком прошлых задач.
+    "retro": {
+        "enabled": True,
+        "days": 30,          # глубина: задачи, завершённые не раньше N дней назад
+        "max_jobs": 2000,    # не больше N последних задач за проход
+    },
     # Скоринговый вердикт (report.verdict).
     "verdict": {
         "confidence_scale": True,   # вес IOC-hit умножается на confidence/100

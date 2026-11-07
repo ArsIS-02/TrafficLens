@@ -41,6 +41,8 @@ iocs:
     spamhaus_drop: true
     et_compromised: true
     tor_exits: false      # выходные узлы Tor — контекст, низкая уверенность
+  # lists:                # открытые списки угроз: включение пресета можно закрепить здесь
+  #   blocklist-de: {enabled: true}
   misp:
     enabled: false
     url: "https://misp.example"
@@ -75,3 +77,8 @@ verdict:
   critical_requires: [ioc_hit, alert_sev_1, file_ioc]   # без них итог не выше «подозрительно»
   # tls_weak_statuses:    # статусы проверки сертификата, которые не дают очков (по умолчанию — неполная цепочка)
   #   - unable to get local issuer certificate
+
+retro:                    # ретропроверка новых IOC по трафику прошлых задач
+  enabled: true
+  days: 30
+  max_jobs: 2000

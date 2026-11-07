@@ -24,6 +24,8 @@ def main(argv=None) -> int:
     u = sub.add_parser("update-iocs", help="обновить индикаторы из всех источников")
     u.add_argument("--source", help="только один источник (custom, abusech-threatfox, misp, ...)")
     sub.add_parser("update-rules", help="обновить правила Suricata (ET Open)")
+    rt = sub.add_parser("retro", help="ретропроверка: новые IOC против трафика прошлых задач")
+    rt.add_argument("--full", action="store_true", help="сверить все IOC базы, а не только новые")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -44,8 +46,19 @@ def main(argv=None) -> int:
         return 0
 
     if args.cmd == "update-iocs":
-        for k, v in worker.run_ioc_update(cfg, db, only=args.source).items():
+        for k, v in worker.run_ioc_update(cfg, db, only=args.source, retro_sync=True).items():
             print(f"{k:24} {v}")
+        st = db.kv_get("retro_status") or {}
+        if st:
+            print(f"ретропроверка: новых IOC {st.get('new_iocs', 0)}, задач {st.get('jobs', 0)}, совпадений {st.get('hits', 0)}")
+        return 0
+
+    if args.cmd == "retro":
+        st = worker.run_retro(cfg, db, full=args.full) or {}
+        print(f"IOC проверено {st.get('new_iocs', 0)}, задач {st.get('jobs', 0)}, новых совпадений {st.get('hits', 0)} "
+              f"в {st.get('jobs_hit', 0)} задачах")
+        for h in db.retro_hits(unacked=True, limit=50):
+            print(f"  {h['job_id']}  {h['ioc_type']:7} {h['ioc_value']:40} {h['source']}  {h['info'][:60]}")
         return 0
 
     if args.cmd == "update-rules":
@@ -58,7 +71,7 @@ def main(argv=None) -> int:
             print(f"нет файла {args.pcap}", file=sys.stderr)
             return 2
         if args.update_iocs:
-            worker.run_ioc_update(cfg, db)
+            worker.run_ioc_update(cfg, db, retro_sync=True)
         # задача сразу «running», чтобы её не забрал фоновый обработчик веб-контейнера
         jid = worker.enqueue_file(cfg, db, args.pcap, args.pcap.name, "cli", move=False, status="running")
         pipeline.process(cfg, db, db.job(jid))

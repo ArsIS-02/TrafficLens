@@ -74,6 +74,17 @@
 
 <!-- ============================================================ СВОДКА -->
 <section class="tabpane active" id="tab-summary">
+  {% if embedded and job.retro %}{% set rnew = job.retro|rejectattr('ack')|list %}
+  <div class="verdict critical retro-banner">
+    <div class="icon">↺</div>
+    <div style="flex:1">
+      <div class="title">{{ L.retro_report_title.format(n=job.retro|length) }}</div>
+      <div class="muted">{{ L.retro_report_hint }}</div>
+      <ul>{% for h in job.retro[:8] %}<li><span class="mono">{{ h.ioc_value }}</span> ({{ L.get('ioc_type_' ~ h.ioc_type, h.ioc_type) }}) — {{ h.source }}{% if h.info %}: {{ h.info }}{% endif %} · {{ L.retro_seen_lbl }} {{ h.seen_ts|ts('%d.%m %H:%M:%S') }} · {{ L.retro_found_lbl }} {{ h.detected|ts('%d.%m %H:%M') }}</li>{% endfor %}</ul>
+    </div>
+    {% if rnew %}<button class="btn small" data-action="retro-ack" data-job="{{ job.id }}">{{ L.retro_ack_one }}</button>{% endif %}
+  </div>
+  {% endif %}
   {% set v = r.verdict %}
   <div class="verdict {{ v.level }}">
     <div class="icon">{{ '!' if v.level == 'critical' else '?' if v.level == 'suspicious' else '✓' }}</div>

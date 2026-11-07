@@ -10,6 +10,6 @@ cmd="${1:-web}"
 case "$cmd" in
   web)                       exec python3 -m trafficlens web ;;
   capture)                   exec /app/bin/capture.sh ;;
-  analyze|update-iocs|update-rules) exec python3 -m trafficlens "$cmd" "$@" ;;
+  analyze|update-iocs|update-rules|retro) exec python3 -m trafficlens "$cmd" "$@" ;;
   *)                         exec "$cmd" "$@" ;;
 esac

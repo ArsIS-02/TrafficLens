@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import feeds, pipeline, runner
+from . import feeds, pipeline, retro, runner
 from .config import Config
 from .db import DB
 
@@ -107,15 +107,35 @@ def _mark(task: str, on: bool):
         (_state["busy"].add if on else _state["busy"].discard)(task)
 
 
-def run_ioc_update(cfg: Config, db: DB, only: str | None = None) -> dict:
+def run_ioc_update(cfg: Config, db: DB, only: str | None = None, retro_sync: bool = False) -> dict:
     _mark("iocs", True)
     try:
         res = feeds.update_all(cfg, db, only=only)
         with _lock:
             _state["ioc_update"] = {"ts": time.time(), "result": res}
-        return res
     finally:
         _mark("iocs", False)
+    if (cfg.get("retro") or {}).get("enabled", True):
+        if retro_sync:
+            run_retro(cfg, db)
+        else:   # в фоне: первый проход строит observables для всех задач и может занять минуты
+            threading.Thread(target=run_retro, args=(cfg, db), daemon=True, name="retro").start()
+    return res
+
+
+def run_retro(cfg: Config, db: DB, full: bool = False) -> dict | None:
+    """Ретропроверка новых IOC по прошлым задачам; повторный запуск во время работы пропускается."""
+    with _lock:
+        if "retro" in _state["busy"]:
+            return None
+        _state["busy"].add("retro")
+    try:
+        return retro.run(cfg, db, full=full)
+    except Exception:  # noqa: BLE001
+        log.exception("retro")
+        return None
+    finally:
+        _mark("retro", False)
 
 
 def run_rules_update(cfg: Config) -> tuple[bool, str]:

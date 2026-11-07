@@ -72,6 +72,17 @@ window.TL = (function () {
       } else if (a === "rulesrc-del") {
         if (!await confirm(tr("del_src_confirm", { name: b.dataset.url }), { danger: true, ok: tr("delete") })) return;
         await api("/api/rules/sources/delete", { body: { url: b.dataset.url } }); location.reload();
+      } else if (a === "retro-ack") {
+        await api("/api/retro/ack", { body: { job: job || null } }); toast(tr("retro_ack_ok")); setTimeout(() => location.reload(), 400);
+      } else if (a === "retro-run") {
+        b.disabled = true; await api("/api/retro/run", { body: { full: b.dataset.full === "1" } });
+        toast(tr("retro_started")); pollStatus();
+      } else if (a === "list-toggle") {
+        b.disabled = true; await api("/api/iocs/lists/toggle", { body: { id: b.dataset.id, enabled: b.dataset.on === "1" } });
+        toast(tr(b.dataset.on === "1" ? "list_enabled_ok" : "list_disabled_ok")); setTimeout(() => location.reload(), b.dataset.on === "1" ? 2500 : 400);
+      } else if (a === "list-del") {
+        if (!await confirm(tr("del_src_confirm", { name: b.dataset.name }), { danger: true, ok: tr("delete") })) return;
+        await api("/api/iocs/lists/delete", { body: { id: b.dataset.id } }); location.reload();
       } else if (a === "allow-del") {
         await api("/api/allowlist", { body: { kind: b.dataset.kind, key: b.dataset.key, action: "del" } });
         b.closest(".ioc-src")?.remove();
@@ -206,6 +217,19 @@ window.TL = (function () {
     });
   }
 
-  document.addEventListener("DOMContentLoaded", () => { initUpload(); autoRefresh(); autoJob(); initCustom(); initLookup(); initRuleSources(); });
+  function initListFeeds() {
+    const f = document.getElementById("list-form"); if (!f) return;
+    f.addEventListener("submit", async e => {
+      e.preventDefault();
+      try {
+        await api("/api/iocs/lists", { body: {
+          url: document.getElementById("list-url").value.trim(), name: document.getElementById("list-name").value.trim(),
+          type: document.getElementById("list-type").value || null, conf: parseInt(document.getElementById("list-conf").value, 10) || 60 } });
+        toast(tr("list_added_ok")); setTimeout(() => location.reload(), 2500);
+      } catch (err) { alert(err.message, { title: tr("error_title") }); }
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => { initUpload(); autoRefresh(); autoJob(); initCustom(); initLookup(); initRuleSources(); initListFeeds(); });
   return { confirm, alert, toast, api };
 })();

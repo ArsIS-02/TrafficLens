@@ -53,6 +53,24 @@ CREATE TABLE IF NOT EXISTS marks (
     updated REAL NOT NULL,
     PRIMARY KEY (job_id, kind, key)
 );
+CREATE TABLE IF NOT EXISTS retro_hits (
+    job_id TEXT NOT NULL,
+    ioc_type TEXT NOT NULL,
+    ioc_value TEXT NOT NULL,
+    source TEXT NOT NULL,
+    observed TEXT DEFAULT '',     -- что было в трафике (адрес, домен, хэш)
+    info TEXT DEFAULT '',
+    confidence INTEGER DEFAULT 0,
+    seen_ts REAL,                 -- когда это значение встретилось в трафике
+    detected REAL NOT NULL,       -- когда ретропроверка нашла совпадение
+    ack INTEGER DEFAULT 0,
+    PRIMARY KEY (job_id, ioc_type, ioc_value, source)
+);
+CREATE INDEX IF NOT EXISTS retro_ack ON retro_hits(ack, detected);
+CREATE TABLE IF NOT EXISTS kv (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS allowlist (
     kind TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -121,6 +139,7 @@ class DB:
         with self.conn() as c:
             c.execute("DELETE FROM jobs WHERE id=?", (job_id,))
             c.execute("DELETE FROM marks WHERE job_id=?", (job_id,))
+            c.execute("DELETE FROM retro_hits WHERE job_id=?", (job_id,))
 
     def reset_running(self) -> None:
         with self.conn() as c:
@@ -138,6 +157,67 @@ class DB:
     def feeds(self) -> dict[str, dict]:
         with self.conn() as c:
             return {r["name"]: dict(r) for r in c.execute("SELECT * FROM feeds")}
+
+    # ---------- служебные значения ----------
+    def kv_get(self, key: str, default=None):
+        with self.conn() as c:
+            r = c.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
+        if not r:
+            return default
+        try:
+            return json.loads(r["value"])
+        except ValueError:
+            return default
+
+    def kv_set(self, key: str, value) -> None:
+        with self.conn() as c:
+            c.execute("INSERT INTO kv(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                      (key, json.dumps(value, ensure_ascii=False)))
+
+    # ---------- ретропроверка ----------
+    def add_retro_hits(self, rows: list[dict]) -> int:
+        """Новые совпадения ретропроверки; уже известные (та же задача, IOC, источник) пропускаются."""
+        if not rows:
+            return 0
+        with self.conn() as c:
+            before = c.total_changes
+            c.executemany(
+                "INSERT OR IGNORE INTO retro_hits(job_id, ioc_type, ioc_value, source, observed, info, confidence, seen_ts, detected) "
+                "VALUES (:job_id, :ioc_type, :ioc_value, :source, :observed, :info, :confidence, :seen_ts, :detected)", rows)
+            return c.total_changes - before
+
+    def retro_hits(self, job_id: str | None = None, unacked: bool = False, limit: int = 200) -> list[dict]:
+        q, args = "SELECT * FROM retro_hits WHERE 1=1", []
+        if job_id:
+            q += " AND job_id=?"
+            args.append(job_id)
+        if unacked:
+            q += " AND ack=0"
+        q += " ORDER BY detected DESC, confidence DESC LIMIT ?"
+        args.append(limit)
+        with self.conn() as c:
+            return [dict(r) for r in c.execute(q, args)]
+
+    def retro_unacked_jobs(self) -> dict[str, int]:
+        with self.conn() as c:
+            return {r["job_id"]: r["n"] for r in c.execute("SELECT job_id, COUNT(*) n FROM retro_hits WHERE ack=0 GROUP BY job_id")}
+
+    def retro_ack(self, job_id: str | None = None) -> None:
+        with self.conn() as c:
+            if job_id:
+                c.execute("UPDATE retro_hits SET ack=1 WHERE job_id=?", (job_id,))
+            else:
+                c.execute("UPDATE retro_hits SET ack=1 WHERE ack=0")
+
+    def delete_source(self, source: str) -> None:
+        with self.conn() as c:
+            c.execute("DELETE FROM iocs WHERE source=?", (source,))
+            c.execute("DELETE FROM feeds WHERE name=?", (source,))
+
+    def iocs_since(self, ts: float) -> list[dict]:
+        with self.conn() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT type, value, source, info, tags, confidence, port FROM iocs WHERE first_seen > ?", (ts,))]
 
     # ---------- разметка аналитика ----------
     def set_mark(self, job_id: str, kind: str, key: str, status: str, note: str = "") -> None:
