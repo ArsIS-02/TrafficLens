@@ -28,6 +28,18 @@ ls -la ~/.config/containers/systemd/trafficlens.container
 
 Если указанного в Quadlet-файле `EnvironmentFile` (`~/.config/trafficlens.env`) нет, контейнер не запустится. Создайте файл из `deploy/trafficlens.env.example`.
 
+### `status=143` и `Failed with result 'exit-code'` при перезапуске
+
+Это не сбой. `podman stop` завершает контейнер сигналом SIGTERM, и код выхода получается 128 + 15 = 143, а systemd по умолчанию считает успешным только 0. В Quadlet-файлах из `deploy/quadlet/` уже есть `SuccessExitStatus=143`. Если ваш файл скопирован раньше, добавьте эту строку в секцию `[Service]` и выполните `systemctl --user daemon-reload` (для захвата — `sudo systemctl daemon-reload`).
+
+### Как убедиться, что после обновления работает новый образ
+
+```bash
+podman exec trafficlens python3 -c "import trafficlens, trafficlens.quality; print(trafficlens.__version__)"
+```
+
+`ModuleNotFoundError` значит, что контейнер запущен со старым образом: выполните `git pull`, пересоберите образ и перезапустите сервис.
+
 ### Предупреждения `SHELL is not supported for OCI image format` при сборке
 
 Они безвредны: так Podman сообщает об инструкции `SHELL` в базовом образе Zeek. Убираются флагом `podman build --format docker`.

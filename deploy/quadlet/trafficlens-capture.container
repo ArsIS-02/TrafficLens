@@ -23,6 +23,8 @@ Environment="CAPTURE_FILTER=not port 8095 and not port 9000 and not port 9200 an
 
 [Service]
 Restart=always
+# podman stop завершает контейнер SIGTERM (128+15) — это штатная остановка, а не сбой
+SuccessExitStatus=143
 
 [Install]
 WantedBy=multi-user.target
