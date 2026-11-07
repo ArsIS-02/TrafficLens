@@ -83,6 +83,8 @@ curl -s "http://127.0.0.1:8095/export/iocs.csv?token=<токен>" | head -3
 
 ### Настройка в Graylog 7
 
+Готовые определения событий, правила pipeline для банов Keenetic и входов в Linux и Windows, а также скрипт, который создаёт таблицу, лежат в [Graylog_streams-alerts, глава 20](https://github.com/ArsIS-02/Graylog_streams-alerts/blob/main/docs/20-trafficlens.md). Ниже — то же вручную.
+
 Адаптер «DSV File from HTTP» берёт колонки **по номерам, с нуля**, и строку заголовка не пропускает. Поэтому в URL стоит `header=0`, ключ — колонка `0` (`value`), значение — колонка `3` (`info`).
 
 1. **System → Configurations → URL Whitelist.** Добавьте `http://127.0.0.1:8095/export/iocs.csv?token=<токен>&types=ip,domain&header=0` (тип Exact match) или регулярное выражение `^http://127\.0\.0\.1:8095/export/iocs\.csv\?.*$`. Без этого адаптер не скачает файл.
@@ -94,15 +96,15 @@ curl -s "http://127.0.0.1:8095/export/iocs.csv?token=<токен>" | head -3
    - Key column: `0`, Value column: `3`.
    - Включите «Allow case-insensitive lookups».
 3. **Caches → Create:** Node-local, in-memory.
-4. **Lookup Tables → Create** `trafficlens_iocs` из адаптера и кеша.
+4. **Lookup Tables → Create** `trafficlens-iocs` из адаптера и кеша.
 5. Правило пайплайна, например для логов маршрутизатора с полем `dst_ip`:
    ```
    rule "TrafficLens IOC: dst_ip"
    when
-     has_field("dst_ip") && lookup_has_value("trafficlens_iocs", to_string($message.dst_ip))
+     has_field("dst_ip") && lookup_has_value("trafficlens-iocs", to_string($message.dst_ip))
    then
      set_field("tl_ioc_hit", true);
-     set_field("tl_ioc_info", lookup_value("trafficlens_iocs", to_string($message.dst_ip)));
+     set_field("tl_ioc_info", lookup_value("trafficlens-iocs", to_string($message.dst_ip)));
    end
    ```
    Event definition на `tl_ioc_hit:true` превращает это в алерт.
