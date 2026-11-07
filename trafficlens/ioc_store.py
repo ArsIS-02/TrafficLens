@@ -117,14 +117,42 @@ class IOCIndex:
         if hit:
             return Match("ip", ip, ip, hit)
         if self.nets:
-            try:
-                a = ipaddress.ip_address(ip)
-            except ValueError:
-                return None
-            for net, entries in self.nets:
-                if a.version == net.version and a in net:
-                    return Match("cidr", str(net), ip, entries)
+            return self._net_match(ip)
         return None
+
+    def _net_match(self, ip: str) -> Match | None:
+        """Поиск по подсетям: индекс «длина префикса -> сеть» + кеш по адресу.
+
+        Списки вроде Spamhaus DROP — тысячи сетей; линейный перебор на каждое
+        соединение большого PCAP слишком дорог.
+        """
+        cache = self.__dict__.setdefault("_net_cache", {})
+        if self.__dict__.get("_net_index_n") != len(self.nets):
+            idx: dict[tuple[int, int], dict] = {}
+            for net, entries in self.nets:
+                idx.setdefault((net.version, net.prefixlen), {})[net] = entries
+            self._net_index = sorted(idx.items(), key=lambda kv: -kv[0][1])   # сначала самые узкие
+            self._net_index_n = len(self.nets)
+            cache.clear()
+        if ip in cache:
+            return cache[ip]
+        res = None
+        try:
+            a = ipaddress.ip_address(ip)
+        except ValueError:
+            a = None
+        if a is not None:
+            for (ver, plen), nets in self._net_index:
+                if ver != a.version:
+                    continue
+                net = ipaddress.ip_network(f"{a}/{plen}", strict=False)
+                entries = nets.get(net)
+                if entries:
+                    res = Match("cidr", str(net), ip, entries)
+                    break
+        if len(cache) < 200000:
+            cache[ip] = res
+        return res
 
     def domain(self, name: str) -> Match | None:
         if not name:

@@ -97,6 +97,61 @@ def fetch_feodo(key: str) -> list[Indicator]:
     return out
 
 
+# ------------------------------------------------------------------ открытые списки без ключа
+SPAMHAUS_DROP = ("https://www.spamhaus.org/drop/drop_v4.json", "https://www.spamhaus.org/drop/drop_v6.json")
+ET_COMPROMISED = "https://rules.emergingthreats.net/blockrules/compromised-ips.txt"
+TOR_EXITS = "https://check.torproject.org/torbulkexitlist"
+
+
+def _plain_ips(text: str, info: str, tags, conf: int) -> list[Indicator]:
+    out = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].split(";", 1)[0].strip()
+        if line:
+            i = _ind(line, info=info, tags=tags, conf=conf)
+            if i and i.type in ("ip", "cidr"):
+                out.append(i)
+    return out
+
+
+def fetch_spamhaus_drop() -> list[Indicator]:
+    """Spamhaus DROP / DROPv6: JSON Lines {"cidr": ..., "sblid": ...}; последняя строка — метаданные."""
+    out: list[Indicator] = []
+    for url in SPAMHAUS_DROP:
+        r = requests.get(url, headers=UA, timeout=TIMEOUT)
+        r.raise_for_status()
+        for line in r.text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("{"):
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                cidr = e.get("cidr")
+                if not cidr:
+                    continue
+                i = _ind(cidr, info=f"Spamhaus DROP {e.get('sblid') or ''}".strip(), tags=["drop"], conf=90)
+            else:  # старый текстовый формат «cidr ; SBLxxxx»
+                i = (_plain_ips(line, "Spamhaus DROP", ["drop"], 90) or [None])[0]
+            if i:
+                out.append(i)
+    return out
+
+
+def fetch_et_compromised() -> list[Indicator]:
+    r = requests.get(ET_COMPROMISED, headers=UA, timeout=TIMEOUT)
+    r.raise_for_status()
+    return _plain_ips(r.text, "Emerging Threats: compromised host", ["compromised"], 60)
+
+
+def fetch_tor_exits() -> list[Indicator]:
+    r = requests.get(TOR_EXITS, headers=UA, timeout=TIMEOUT)
+    r.raise_for_status()
+    return _plain_ips(r.text, "Tor exit node", ["tor"], 20)
+
+
 def fetch_malwarebazaar(key: str) -> list[Indicator]:
     if not key:
         raise FeedError("feed_err_need_key")
@@ -298,6 +353,12 @@ def update_all(cfg: Config, db: DB, only: str | None = None) -> dict[str, str]:
             ("abusech-feodo", ab.get("feodo"), lambda: fetch_feodo(key), "replace"),
             ("abusech-malwarebazaar", ab.get("malwarebazaar"), lambda: fetch_malwarebazaar(key), "accumulate"),
         ]
+    pub = ic.get("public") or {}
+    plan += [
+        ("spamhaus-drop", pub.get("spamhaus_drop"), fetch_spamhaus_drop, "replace"),
+        ("et-compromised", pub.get("et_compromised"), fetch_et_compromised, "replace"),
+        ("tor-exits", pub.get("tor_exits"), fetch_tor_exits, "replace"),
+    ]
     if ic["misp"].get("enabled"):
         plan.append(("misp", True, lambda: fetch_misp(ic["misp"]), "replace"))
     if ic["opencti"].get("enabled"):

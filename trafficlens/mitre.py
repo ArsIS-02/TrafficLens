@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+from . import quality
+
 TACTICS = {
     "TA0001": "Initial Access",
     "TA0002": "Execution",
@@ -90,6 +92,8 @@ def mitre_summary(rep: dict) -> list[dict]:
             te["n"] += n
 
     for a in rep.get("alerts") or []:
+        if quality.alert_is_noise(a.get("signature", "")):
+            continue
         for ta, tech in alert_tags(a.get("category", "")):
             add(ta, tech, int(a.get("count") or 1))
     f = rep.get("findings") or {}
@@ -103,8 +107,14 @@ def mitre_summary(rep: dict) -> list[dict]:
         add("TA0006", "T1040", len(f["cleartext_auth"]))
     if f.get("unusual_ports"):
         add("TA0011", "T1571", len(f["unusual_ports"]))
-    if (rep.get("tls") or {}).get("invalid"):
-        add("TA0011", "T1573", len(rep["tls"]["invalid"]))
+    # Невалидный сертификат сам по себе — не Encrypted Channel (T1573): тег ставим
+    # только сильным находкам (самоподписанный leaf, истёк, чужое имя) и только
+    # если с того же хоста есть маячок — тогда это похоже на C2 по TLS.
+    beacon_src = {b.get("src") for b in (f.get("beacons") or [])}
+    strong_tls = [t for t in quality.tls_strong((rep.get("tls") or {}).get("invalid") or [])
+                  if t.get("src") in beacon_src]
+    if strong_tls:
+        add("TA0011", "T1573", len(strong_tls))
     if (rep.get("dns") or {}).get("suspicious"):
         add("TA0011", "T1071.004", len(rep["dns"]["suspicious"]))
     ioc_files = [x for x in rep.get("files") or [] if x.get("ioc")]

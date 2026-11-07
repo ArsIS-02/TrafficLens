@@ -18,6 +18,7 @@ from . import runner as runner_mod
 from .ioc_store import IOCIndex, Match
 from .ioc_types import TYPE_LABELS, norm_url
 from .markup import skipped as _marked_skip
+from . import quality
 
 STD_PORTS = {
     "http": {80, 8080, 8000, 8008, 8081, 8888, 3128, 591},
@@ -288,6 +289,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
     tls_versions = Counter()
     invalid_certs = []
     tls_total = 0
+    sni_by_dst: dict[str, set] = defaultdict(set)
     for r in read_log(zdir / "ssl.log"):
         tls_total += 1
         ts, src, dst = r.get("ts", 0), r.get("id.orig_h", ""), r.get("id.resp_h", "")
@@ -296,6 +298,8 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
         tls_versions[ver] += 1
         if sni:
             ip_names[dst][sni] += 1
+            if len(sni_by_dst[dst]) < 20:
+                sni_by_dst[dst].add(sni)
             hits.add(index.domain(sni), "ctx_tls_sni", ts, src, dst, r.get("id.resp_p"))
         key = sni or f"[{dst}]"
         s = sni_stats.setdefault(key, {"sni": key, "count": 0, "dst": set(), "versions": Counter(), "validation": Counter(), "ja3": set(), "ja4": set()})
@@ -307,10 +311,13 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
         if vs:
             s["validation"][vs] += 1
             if vs != "ok" and not is_local(dst) and len(invalid_certs) < max_rows:
-                invalid_certs.append({"ts": ts, "src": src, "dst": dst, "sni": sni, "status": vs})
+                invalid_certs.append({"ts": ts, "src": src, "dst": dst, "sni": sni, "status": vs,
+                                      "weak": quality.tls_is_weak(vs, cfg)})
 
+    invalid_certs.sort(key=lambda t: t["weak"])   # сильные находки — первыми
     # ======================= Suricata
     alerts: dict[int, dict] = {}
+    suppressed: dict[int, dict] = {}   # шумовые сигнатуры (checksum offload и т. п.)
     suri_ok = (sdir / "eve.json").exists()
     for r in read_log(sdir / "eve.json"):
         et = r.get("event_type")
@@ -318,6 +325,10 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
             a = r.get("alert") or {}
             sid = a.get("signature_id", 0)
             ts = suri_ts(r.get("timestamp", ""))
+            if quality.alert_is_noise(a.get("signature", ""), cfg):
+                n = suppressed.setdefault(sid, {"sid": sid, "signature": a.get("signature", ""), "count": 0})
+                n["count"] += 1
+                continue
             e = alerts.setdefault(sid, {"sid": sid, "signature": a.get("signature", ""), "category": a.get("category", ""),
                                         "severity": a.get("severity", 3), "count": 0, "first": ts, "last": ts, "pairs": Counter()})
             e["count"] += 1
@@ -364,17 +375,36 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
                 ioc.extend(m.entries)
                 break
         extracted = r.get("extracted")
+        fname = r.get("filename") or fuid_name.get(fuid, "")
+        mime = r.get("mime_type") or ""
         files.append({
             "ts": ts, "fuid": fuid, "proto": r.get("source", ""), "sender": sender, "receiver": receiver,
-            "direction": direction, "filename": r.get("filename") or fuid_name.get(fuid, ""),
-            "mime": r.get("mime_type") or "", "size": r.get("seen_bytes") or r.get("total_bytes") or 0,
+            "direction": direction, "filename": fname,
+            "mime": mime, "mime_guess": "" if mime else quality.guess_type(fname),
+            "size": r.get("seen_bytes") or r.get("total_bytes") or 0,
             "total": r.get("total_bytes"), "missing": r.get("missing_bytes", 0),
             "md5": r.get("md5", ""), "sha1": r.get("sha1", ""), "sha256": r.get("sha256", ""),
             "extracted": extracted if extracted and (extract_dir / extracted).exists() else "",
             "url": fuid_url.get(fuid, ""), "ioc": ioc,
+            "cutoff": bool(r.get("extracted_cutoff")),
+            "service": quality.file_is_service(mime, fuid_url.get(fuid, "")),
+            "repeat": 1,
         })
-    files.sort(key=lambda f: (not f["ioc"], f["ts"]))
+    # одинаковое содержимое (OCSP-ответы, повторные загрузки) — одной строкой со счётчиком
+    uniq: dict[str, dict] = {}
+    for f_ in files:
+        key = f_["sha256"] or f_["md5"] or f_["fuid"]
+        u = uniq.get(key)
+        if u is None:
+            uniq[key] = f_
+        else:
+            u["repeat"] += 1
+            u["ioc"] = u["ioc"] or f_["ioc"]
+            u["extracted"] = u["extracted"] or f_["extracted"]
+    files = list(uniq.values())
+    files.sort(key=lambda f: (not f["ioc"], f["service"], -(f["size"] or 0) if not f["service"] else f["ts"]))
     files_shown = files[:max_rows]
+    files_service = sum(1 for f_ in files if f_["service"])
 
     # ======================= Соединения
     conns_total = 0
@@ -391,6 +421,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
     beacons_ts: dict[tuple, list] = {}
     upload_sum: dict[tuple, list] = defaultdict(lambda: [0, 0, 0.0, 0.0])
     long_conns = []
+    enc_dns: dict[tuple, list] = {}
     unusual = Counter()
     cleartext = Counter()
     ignore_ports = set(heur.get("beacon_ignore_ports", []))
@@ -425,6 +456,13 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
         if r.get("orig_l2_addr") and is_local(src):
             host_info[src].setdefault("mac", r["orig_l2_addr"])
         sl, dl = is_local(src), is_local(dst)
+        if sl and not dl and proto == "tcp" and dp in (443, 853):
+            kind = quality.doh_kind(dst, dp) or next(
+                (k for k in (quality.doh_kind(dst, dp, x) for x in sni_by_dst.get(dst, ())) if k), "")
+            if kind:
+                ed = enc_dns.setdefault((src, dst, dp, kind), [0, 0, ts])
+                ed[0] += 1
+                ed[1] += tot
         m_dst = index.ip(dst)
         m_src = index.ip(src)
         hits.add(m_dst, "ctx_conn_dst", ts, src, dst, dp, detail=f"{proto}/{dp} {svc}")
@@ -584,14 +622,19 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
 
     # ---- приоритетные хосты: с кого начинать расследование
     weights, thr, scale = _verdict_config(cfg)
+    caps = _verdict_caps(cfg)
     host_risk: dict[str, dict] = {}
 
-    def risk_add(ip: str, points: float, reason: str, indicator: str = "", external: str = "") -> dict | None:
+    def risk_add(ip: str, points: float, reason: str, indicator: str = "", external: str = "",
+                 cat: str = "") -> dict | None:
         if not ip or not is_local(ip) or _is_mcast(ip) or not points:
             return None
         e = host_risk.setdefault(ip, {"score": 0.0, "reasons": [], "indicators": set(), "external": set(),
                                       "ioc": 0, "alerts": 0, "files": 0, "beacons": 0, "uploads": 0,
-                                      "cleartext": 0, "tls": 0, "dns": 0})
+                                      "cleartext": 0, "tls": 0, "dns": 0, "by_cat": Counter()})
+        if cat and cat in caps:
+            points = max(0.0, min(float(points), caps[cat] - e["by_cat"][cat]))
+            e["by_cat"][cat] += points
         e["score"] += float(points)
         if reason and reason not in e["reasons"]:
             e["reasons"].append(reason)
@@ -620,7 +663,8 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
             left, _, right = pair.partition(" → ")
             src, dst = left.rsplit(":", 1)[0], right.rsplit(":", 1)[0]
             for ip, other in ((src, dst), (dst, src)):
-                e = risk_add(ip, sev_pts, f"Suricata sev{a.get('severity')} {name}", "", other)
+                e = risk_add(ip, sev_pts, f"Suricata sev{a.get('severity')} {name}", "", other,
+                             cat=f"alert_sev_{a.get('severity')}")
                 if e:
                     e["alerts"] += n
     for fl in files:
@@ -635,40 +679,48 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
     for b in beacons:
         if _marked_skip(b):
             continue
-        e = risk_add(b["src"], float(weights["beacon"]), {"k": "hr_beacon", "dst": b["dst"], "dp": b["dp"]}, "", b["dst"])
+        e = risk_add(b["src"], float(weights["beacon"]), {"k": "hr_beacon", "dst": b["dst"], "dp": b["dp"]}, "", b["dst"],
+                     cat="beacon")
         if e:
             e["beacons"] += 1
     for u in large_uploads:
         if _marked_skip(u):
             continue
-        e = risk_add(u["src"], float(weights["large_upload"]), {"k": "hr_upload", "dst": u["dst"]}, "", u["dst"])
+        e = risk_add(u["src"], float(weights["large_upload"]), {"k": "hr_upload", "dst": u["dst"]}, "", u["dst"],
+                     cat="large_upload")
         if e:
             e["uploads"] += 1
     for c in cleartext_auth[:100]:
         if _marked_skip(c):
             continue
         e = risk_add(c.get("src", ""), float(weights["cleartext_auth"]),
-                     {"k": "hr_cleartext", "proto": c.get("proto"), "user": c.get("user") or "?"}, "", c.get("dst", ""))
+                     {"k": "hr_cleartext", "proto": c.get("proto"), "user": c.get("user") or "?"}, "", c.get("dst", ""),
+                     cat="cleartext_auth")
         if e:
             e["cleartext"] += 1
-    for t in invalid_certs:
+    for t in quality.tls_strong(invalid_certs, cfg):
         if _marked_skip(t):
             continue
         e = risk_add(t.get("src", ""), float(weights["tls_invalid"]),
-                     {"k": "hr_tls", "target": t.get("sni") or t.get("dst")}, t.get("sni", ""), t.get("dst", ""))
+                     {"k": "hr_tls", "target": t.get("sni") or t.get("dst")}, t.get("sni", ""), t.get("dst", ""),
+                     cat="tls_invalid")
         if e:
             e["tls"] += 1
     for d in suspicious_dns_list:
         if _marked_skip(d):
             continue
         for ip in d.get("clients", []):
-            e = risk_add(ip, float(weights["dns_suspicious"]), {"k": "hr_dns", "name": d["name"]}, d["name"], "")
+            e = risk_add(ip, float(weights["dns_suspicious"]), {"k": "hr_dns", "name": d["name"]}, d["name"], "",
+                         cat="dns_suspicious")
             if e:
                 e["dns"] += 1
 
     priority_hosts = []
     for ip, e in host_risk.items():
         level = "high" if e["score"] >= thr["critical"] else "medium" if e["score"] >= thr["suspicious"] else "low"
+        if level == "high" and not (e["ioc"] or e["files"] or e["by_cat"].get("alert_sev_1")
+                                    or any(str(r_).startswith("Suricata sev1") for r_ in e["reasons"])):
+            level = "medium"
         priority_hosts.append({
             "ip": ip, "name": name_of(ip), "mac": host_info.get(ip, {}).get("mac", ""),
             "score": round(e["score"], 1), "level": level,
@@ -696,14 +748,18 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
         "dns": dns_total, "http": http_total, "tls": tls_total, "files": files_total,
         "alerts": sum(a["count"] for a in alerts_list), "alert_sigs": len(alerts_list),
         "ioc_hits": len(hits_list), "notices": sum(notices.values()),
+        "files_unique": len(files), "files_service": files_service,
+        "alerts_suppressed": sum(x["count"] for x in suppressed.values()),
     }
     report = {
         "meta": {**(meta or {}), "generated": time.time(), "ioc_count": index.count,
+                 "dns_absent": dns_total == 0 and conns_total > 0,
                  "suricata": suricata_meta(cfg, sdir), "suricata_ran": suri_ok,
                  "period": {"start": t_min or 0, "end": t_max or 0, "duration": (t_max - t_min) if t_min else 0}},
         "totals": totals,
         "ioc_hits": hits_list,
         "alerts": alerts_list,
+        "alerts_suppressed": sorted(suppressed.values(), key=lambda x: -x["count"]),
         "files": files_shown,
         "timeline": timeline,
         "top_talkers": top_talkers,
@@ -727,7 +783,10 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
         "notices": [{"note": k[0], "msg": k[1], "count": n, **notice_ex[k]} for k, n in notices.most_common(100)],
         "weird": [{"name": k, "count": n} for k, n in weird.most_common(40)],
         "findings": {"beacons": beacons[:200], "large_uploads": large_uploads, "long_conns": sorted(long_conns, key=lambda x: -x["dur"]),
-                     "unusual_ports": unusual_ports, "cleartext": cleartext_list, "cleartext_auth": cleartext_auth[:100]},
+                     "unusual_ports": unusual_ports, "cleartext": cleartext_list, "cleartext_auth": cleartext_auth[:100],
+                     "encrypted_dns": sorted(({"src": k[0], "dst": k[1], "dp": k[2], "kind": k[3], "name": name_of(k[1]),
+                                               "count": v[0], "bytes": v[1], "first": v[2]} for k, v in enc_dns.items()),
+                                             key=lambda x: -x["count"])[:100]},
     }
     report["verdict"] = verdict(report, cfg=cfg)
     return report
@@ -754,67 +813,103 @@ def _verdict_config(cfg=None) -> tuple[dict, dict, bool]:
     return weights, thr, scale
 
 
+# Потолок вклада одной категории в score: десятки однотипных слабых находок
+# не должны складываться в «компрометацию». IOC, sev1 и файлы из базы — без потолка.
+DEFAULT_CAPS = {"alert_sev_2": 45, "alert_sev_3": 10, "beacon": 45, "large_upload": 30,
+                "cleartext_auth": 40, "tls_invalid": 20, "dns_suspicious": 15}
+# Категории-доказательства: без хотя бы одной из них итог не выше «подозрительно».
+STRONG_CATEGORIES = ("ioc_hit", "alert_sev_1", "file_ioc")
+
+
+def _verdict_caps(cfg=None) -> dict:
+    vcfg = (cfg.get("verdict") or {}) if isinstance(cfg, dict) else {}
+    caps = dict(DEFAULT_CAPS)
+    caps.update(vcfg.get("caps") or {})
+    return {k: float(v) for k, v in caps.items() if v is not None}
+
+
 def _verdict_scored(rep: dict, cfg=None) -> dict:
     """Скоринговый вердикт: сумма взвешенных находок + объяснение."""
     weights, thr, scale = _verdict_config(cfg)
+    caps = _verdict_caps(cfg)
+    vcfg = (cfg.get("verdict") or {}) if isinstance(cfg, dict) else {}
+    strong_cats = tuple(vcfg.get("critical_requires") or STRONG_CATEGORIES)
 
     score = 0.0
     reasons: list[dict] = []
+    by_cat: Counter = Counter()
+    capped_out: Counter = Counter()   # сколько находок категории не добавили очков из-за потолка
+    present: set = set()
 
-    def add(pts: float, key: str, **params):
+    def add(pts: float, key: str, cat: str = "", **params):
         nonlocal score
-        if pts:
-            score += pts
-            reasons.append({"pts": round(pts), "k": key, **params})
+        if not pts:
+            return
+        if cat and cat in caps:
+            room = caps[cat] - by_cat[cat]
+            if room <= 0:
+                capped_out[cat] += 1
+                return
+            pts = min(pts, room)
+            by_cat[cat] += pts
+        present.add(cat)
+        score += pts
+        reasons.append({"pts": round(pts), "k": key, **params})
 
     for h in rep.get("ioc_hits") or []:
         if _marked_skip(h):
             continue
         conf = float(h.get("max_conf") or 0)
         pts = float(weights["ioc_hit"]) * (conf / 100.0 if scale else 1.0)
-        add(pts, "vr_ioc", v=h.get("value"), t=h.get("type"), conf=f"{conf:.0f}")
+        add(pts, "vr_ioc", cat="ioc_hit", v=h.get("value"), t=h.get("type"), conf=f"{conf:.0f}")
     for a in rep.get("alerts") or []:
         if _marked_skip(a):
             continue
         name = a.get("signature") or a.get("name") or f"sid {a.get('sid')}"
-        add(float(weights.get(f"alert_sev_{a.get('severity')}", 0)), "vr_alert", sev=a.get("severity"), name=name)
+        add(float(weights.get(f"alert_sev_{a.get('severity')}", 0)), "vr_alert", cat=f"alert_sev_{a.get('severity')}",
+            sev=a.get("severity"), name=name)
     for f_ in rep.get("files") or []:
         if f_.get("ioc") and not _marked_skip(f_):
             name = f_.get("filename") or f_.get("name") or f_.get("sha256") or f_.get("fuid") or ""
-            add(float(weights["file_ioc"]), "vr_file", name=name)
+            add(float(weights["file_ioc"]), "vr_file", cat="file_ioc", name=name)
     findings = rep.get("findings") or {}
     for b in findings.get("beacons") or []:
         if _marked_skip(b):
             continue
         target = f"{b.get('dst')}:{b.get('dp')}" if b.get("dst") else ""
-        add(float(weights["beacon"]), "vr_beacon", src=b.get("src") or "", target=target)
+        add(float(weights["beacon"]), "vr_beacon", cat="beacon", src=b.get("src") or "", target=target)
     for u in findings.get("large_uploads") or []:
         if _marked_skip(u):
             continue
         target = f"{u.get('src') or ''} → {u.get('dst') or ''}".strip()
-        add(float(weights["large_upload"]), "vr_upload", target=target)
+        add(float(weights["large_upload"]), "vr_upload", cat="large_upload", target=target)
     for c in findings.get("cleartext_auth") or []:
         if _marked_skip(c):
             continue
         target = f"{c.get('src') or ''} → {c.get('dst') or ''}".strip(" →")
         user = f" ({c.get('user')})" if c.get("user") else ""
-        add(float(weights["cleartext_auth"]), "vr_cleartext", user=user, target=target)
-    for t in (rep.get("tls") or {}).get("invalid") or []:
+        add(float(weights["cleartext_auth"]), "vr_cleartext", cat="cleartext_auth", user=user, target=target)
+    for t in quality.tls_strong((rep.get("tls") or {}).get("invalid") or [], cfg):
         if _marked_skip(t):
             continue
         target = t.get("sni") or t.get("dst") or ""
-        add(float(weights["tls_invalid"]), "vr_tls", target=target)
+        add(float(weights["tls_invalid"]), "vr_tls", cat="tls_invalid", target=target, status=t.get("status", ""))
     for d in (rep.get("dns") or {}).get("suspicious") or []:
         if _marked_skip(d):
             continue
-        add(float(weights["dns_suspicious"]), "vr_dns", name=d.get("name") or d.get("q") or "")
+        add(float(weights["dns_suspicious"]), "vr_dns", cat="dns_suspicious", name=d.get("name") or d.get("q") or "")
 
+    for cat, n in capped_out.items():
+        reasons.append({"pts": None, "k": f"vr_capped_{cat}", "n": n, "cap": round(caps.get(cat, 0))})
     level = "critical" if score >= thr["critical"] else "suspicious" if score >= thr["suspicious"] else "clean"
+    gated = False
+    if level == "critical" and not any(c in present for c in strong_cats):
+        level, gated = "suspicious", True
     labels = {"critical": "Обнаружены признаки компрометации",
               "suspicious": "Есть подозрительная активность",
               "clean": "Явных признаков компрометации не найдено"}
     return {"level": level, "label": labels[level], "score": round(score, 1),
-            "reasons": reasons[:30], "weights": weights, "thresholds": thr}
+            "reasons": reasons[:30], "weights": weights, "thresholds": thr, "caps": caps, "gated": gated}
 
 
 def verdict(*args, **kwargs):

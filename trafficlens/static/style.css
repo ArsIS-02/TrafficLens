@@ -47,8 +47,11 @@ h3 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); font-weight: 600;
 .brand:hover { text-decoration: none; }
 .brand-mark { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); display: grid; place-items: center; }
 .brand-mark svg { width: 16px; height: 16px; }
-.nav { display: flex; gap: 4px; }
-.nav a { padding: 6px 12px; border-radius: 7px; color: var(--muted); font-weight: 500; }
+.nav { display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.nav::-webkit-scrollbar { display: none; }
+.nav a { padding: 6px 12px; border-radius: 7px; color: var(--muted); font-weight: 500; white-space: nowrap; flex: none; }
+.topbar > * { flex-shrink: 0; } .topbar > .nav { flex-shrink: 1; }
+@media (max-width: 860px) { .topbar { gap: 10px; padding: 0 12px; } .nav a { padding: 6px 8px; } }
 .nav a:hover { background: var(--panel-2); color: var(--text); text-decoration: none; }
 .nav a.active { background: var(--accent-2); color: var(--accent); }
 .topbar .spacer { flex: 1; }
@@ -217,3 +220,11 @@ tr.marked-fp td.markcell, tr.marked-ig td.markcell { opacity: 1; }
 .help section { margin-bottom: 36px; }
 .help img { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; display: block; margin: 10px 0; }
 .help code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+
+/* качество сигналов */
+.note { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+.linkbtn { background: none; border: 0; padding: 4px 0; color: var(--muted); font: 500 13px var(--sans); cursor: pointer; }
+.linkbtn:hover { color: var(--accent); }
+tr.svc-toggle td { background: var(--panel-2); }
+tbody.svc-rows td { color: var(--muted); }
+.banner { border: 1px dashed var(--line); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 18px; color: var(--muted); background: var(--panel); }
