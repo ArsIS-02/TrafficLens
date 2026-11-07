@@ -77,26 +77,29 @@ curl -s "http://127.0.0.1:8095/export/iocs.csv?token=<токен>" | head -3
 | `token` | — | обязателен. Можно передать заголовком `X-TrafficLens-Token` |
 | `types` | все, кроме `cidr` | через запятую: `ip,domain,url,md5,sha1,sha256,ja3,ja4,cidr` |
 | `min_conf` | `export.min_conf` (50) | минимальная уверенность индикатора |
+| `header` | `1` | `0` — без строки заголовка. Нужно для Graylog |
 
-Одна строка — один индикатор. Если индикатор есть в нескольких источниках, они перечисляются через `|`.
+Одна строка — один индикатор. Если индикатор есть в нескольких источниках, они перечисляются через `|`. Когда у индикатора нет описания, в колонке `info` стоит список источников, поэтому значение никогда не бывает пустым.
 
 ### Настройка в Graylog 7
 
-1. **System → Configurations → URL Whitelist.** Добавьте `http://127.0.0.1:8095/export/iocs.csv?token=<токен>` (тип Exact match) или префикс `http://127.0.0.1:8095/export/`.
+Адаптер «DSV File from HTTP» берёт колонки **по номерам, с нуля**, и строку заголовка не пропускает. Поэтому в URL стоит `header=0`, ключ — колонка `0` (`value`), значение — колонка `3` (`info`).
+
+1. **System → Configurations → URL Whitelist.** Добавьте `http://127.0.0.1:8095/export/iocs.csv?token=<токен>&types=ip,domain&header=0` (тип Exact match) или регулярное выражение `^http://127\.0\.0\.1:8095/export/iocs\.csv\?.*$`. Без этого адаптер не скачает файл.
 2. **System → Lookup Tables → Data Adapters → Create.**
    - Тип: «DSV File from HTTP».
-   - File URL: `http://127.0.0.1:8095/export/iocs.csv?token=<токен>&types=ip,domain`.
-   - Refresh interval: 3600 с.
-   - Separator: `,`, Quote character: `"`.
-   - Key column: `value`, Value column: `info`.
-   - Включите Case-insensitive lookup.
+   - File URL: тот же адрес, что в whitelist.
+   - Refresh interval: `3600`.
+   - Separator: `,`, Line separator: `\n`, Quote character: `"`, Ignore characters: `#`.
+   - Key column: `0`, Value column: `3`.
+   - Включите «Allow case-insensitive lookups».
 3. **Caches → Create:** Node-local, in-memory.
 4. **Lookup Tables → Create** `trafficlens_iocs` из адаптера и кеша.
 5. Правило пайплайна, например для логов маршрутизатора с полем `dst_ip`:
    ```
    rule "TrafficLens IOC: dst_ip"
    when
-     has_field("dst_ip") && is_not_null(lookup_value("trafficlens_iocs", to_string($message.dst_ip)))
+     has_field("dst_ip") && lookup_has_value("trafficlens_iocs", to_string($message.dst_ip))
    then
      set_field("tl_ioc_hit", true);
      set_field("tl_ioc_info", lookup_value("trafficlens_iocs", to_string($message.dst_ip)));
@@ -104,7 +107,7 @@ curl -s "http://127.0.0.1:8095/export/iocs.csv?token=<токен>" | head -3
    ```
    Event definition на `tl_ioc_hit:true` превращает это в алерт.
 
-Подсети (`cidr`) в выгрузке выключены по умолчанию: адаптер DSV сравнивает ключи точно. Для поиска по подсетям включите в адаптере CIDR lookup и выгружайте `types=cidr` отдельной таблицей.
+Подсети (`cidr`) по умолчанию в выгрузку не входят: адаптер DSV сравнивает ключи только точно, поиска по CIDR у него нет.
 
 ## 3. Имена локальных хостов
 

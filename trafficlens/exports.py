@@ -89,11 +89,13 @@ def build_csv(rep: dict, what: str, lang: str = "ru") -> bytes | None:
 EXPORT_TYPES = ("ip", "domain", "url", "md5", "sha1", "sha256", "ja3", "ja4")
 
 
-def iocs_csv(db, types: set | None = None, min_conf: int = 0) -> bytes:
+def iocs_csv(db, types: set | None = None, min_conf: int = 0, header: bool = True) -> bytes:
     """Одна строка на (тип, значение): источники через «|», описание, максимальная уверенность.
 
-    Без BOM: файл читает не человек, а адаптер Graylog «DSV File from HTTP»
-    (ключ — колонка value, значение — info или source).
+    Без BOM: файл читает не человек, а адаптер Graylog «DSV File from HTTP». Адаптер берёт
+    колонки по номерам (ключ 0, значение 3) и строку заголовка не пропускает, поэтому для
+    него header=False. Пустое описание заменяется списком источников: значение в lookup
+    table не должно быть пустым.
     """
     want = [t for t in EXPORT_TYPES if not types or t in types]
     if types and "cidr" in types:
@@ -109,7 +111,9 @@ def iocs_csv(db, types: set | None = None, min_conf: int = 0) -> bytes:
             (*want, int(min_conf))).fetchall()
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
-    w.writerow(["value", "type", "source", "info", "confidence"])
+    if header:
+        w.writerow(["value", "type", "source", "info", "confidence"])
     for r in rows:
-        w.writerow([r["value"], r["type"], r["sources"], (r["info"] or "").replace("\n", " ")[:300], r["conf"]])
+        info = (r["info"] or "").replace("\n", " ").replace("\r", " ").strip()[:300] or r["sources"]
+        w.writerow([r["value"], r["type"], r["sources"], info, r["conf"]])
     return buf.getvalue().encode("utf-8")

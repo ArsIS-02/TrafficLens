@@ -137,6 +137,9 @@ def test_export_csv(env):
     assert [x["type"] for x in csv.DictReader(io.StringIO(r.text))] == ["domain"]
     assert not r.data.startswith(b"\xef\xbb\xbf")
     assert c.get("/export/iocs.csv?token=s3cr3t&min_conf=101").text.strip() == "value,type,source,info,confidence"
+    raw = c.get("/export/iocs.csv?token=s3cr3t&header=0&types=ip").text.splitlines()
+    assert raw and not raw[0].startswith("value,") and all(len(next(csv.reader([ln]))) == 5 for ln in raw)
+    assert all(next(csv.reader([ln]))[3] for ln in raw)               # значение для Graylog не пустое
 
 
 def test_names_hosts_file_and_ptr(env, tmp_path, monkeypatch):

@@ -651,7 +651,8 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
             min_conf = int(request.args.get("min_conf", (cfg.get("export") or {}).get("min_conf", 50)))
         except ValueError:
             min_conf = 50
-        body = exports.iocs_csv(db, types=types, min_conf=min_conf)
+        header = request.args.get("header", "1") not in ("0", "no", "false")
+        body = exports.iocs_csv(db, types=types, min_conf=min_conf, header=header)
         return Response(body, mimetype="text/csv; charset=utf-8",
                         headers={"Cache-Control": "no-store", "Content-Disposition": "inline; filename=trafficlens-iocs.csv"})
 
