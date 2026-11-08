@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS iocs (
     PRIMARY KEY (type, value, source)
 );
 CREATE INDEX IF NOT EXISTS iocs_value ON iocs(value);
+CREATE TABLE IF NOT EXISTS sightings (
+    type TEXT NOT NULL,
+    value TEXT NOT NULL,
+    job_id TEXT NOT NULL,
+    ts REAL NOT NULL,
+    PRIMARY KEY (type, value, job_id)
+);
+CREATE INDEX IF NOT EXISTS sightings_value ON sightings(value);
 CREATE TABLE IF NOT EXISTS feeds (
     name TEXT PRIMARY KEY,
     updated REAL,
@@ -140,6 +148,33 @@ class DB:
             c.execute("DELETE FROM jobs WHERE id=?", (job_id,))
             c.execute("DELETE FROM marks WHERE job_id=?", (job_id,))
             c.execute("DELETE FROM retro_hits WHERE job_id=?", (job_id,))
+            c.execute("DELETE FROM sightings WHERE job_id=?", (job_id,))
+
+    # ---------- «где ещё встречался» (sightings) ----------
+    def set_sightings(self, job_id: str, hits: list[dict]) -> None:
+        """Перезаписать IOC-наблюдения задачи. Вызывается при каждой пересборке отчёта."""
+        rows = [(h.get("type", ""), h.get("value", ""), job_id, time.time())
+                for h in hits if h.get("value")]
+        with self.conn() as c:
+            c.execute("DELETE FROM sightings WHERE job_id=?", (job_id,))
+            c.executemany("INSERT OR REPLACE INTO sightings(type, value, job_id, ts) VALUES(?,?,?,?)", rows)
+
+    def sightings_elsewhere(self, pairs: list[tuple[str, str]], exclude_job: str,
+                            limit: int = 20) -> dict[tuple[str, str], list[dict]]:
+        """Для каждого (type, value) — задачи, где индикатор тоже встречался (кроме exclude_job)."""
+        out: dict[tuple[str, str], list[dict]] = {}
+        with self.conn() as c:
+            for t, v in pairs:
+                rows = c.execute(
+                    "SELECT job_id, ts FROM sightings WHERE type=? AND value=? AND job_id<>? "
+                    "ORDER BY ts DESC LIMIT ?", (t, v, exclude_job, limit)).fetchall()
+                if rows:
+                    out[(t, v)] = [dict(r) for r in rows]
+        return out
+
+    def sightings_count(self) -> int:
+        with self.conn() as c:
+            return c.execute("SELECT COUNT(*) FROM sightings").fetchone()[0]
 
     def reset_running(self) -> None:
         with self.conn() as c:

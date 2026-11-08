@@ -16,6 +16,12 @@
 {% macro empty(cols, text=None) %}<tr><td colspan="{{ cols }}" class="empty">{{ text or L.no_data }}</td></tr>{% endmacro %}
 {% macro tabbadge(n, cls='') %}{% if n %}<span class="badge {{ cls }}">{{ n }}</span>{% endif %}{% endmacro %}
 {% macro markedcls(it) %}{{ 'marked-fp' if it.status == 'false_positive' else 'marked-ig' if it.status == 'ignored' else '' }}{% endmacro %}
+{% macro ewbadge(h) -%}
+{%- if embedded -%}
+{%- set ew = elsewhere.get((h.type, h.value)) -%}
+{%- if ew %} <a class="badge warn" href="/?q={{ h.value|urlencode }}" title="{{ L.elsewhere_title }}: {% for e in ew[:5] %}{{ jobnames.get(e.job_id, e.job_id) }}{{ ', ' if not loop.last }}{% endfor %}{% if ew|length > 5 %}…{% endif %}">{{ L.elsewhere_badge.format(n=ew|length) }}</a>{% endif -%}
+{%- endif -%}
+{%- endmacro %}
 {% macro evmark(ev) %}<span class="badge {{ 'ok' if ev == 'fact' else 'warn' }}" title="{{ L.get('ev_' ~ ev ~ '_hint', '') }}">{{ L.get('ev_' ~ ev, ev) }}</span>{% endmacro %}
 {% macro markcell(kind, key, it) -%}
 <td class="markcell">
@@ -184,7 +190,7 @@
     <div class="table-wrap"><table>
       <thead><tr><th>{{ L.col_indicator }}</th><th>{{ L.col_where }}</th><th>{{ L.col_source }}</th><th class="num">{{ L.col_times }}</th><th>{{ L.col_hosts }}</th></tr></thead>
       <tbody>{% for h in r.ioc_hits[:8] %}<tr class="hl">
-        <td class="break"><span class="badge">{{ h.type|lioc(h.type_label) }}</span> <span class="mono copy">{{ h.value }}</span></td>
+        <td class="break"><span class="badge">{{ h.type|lioc(h.type_label) }}</span> <span class="mono copy">{{ h.value }}</span>{{ ewbadge(h) }}</td>
         <td>{% for c in h.contexts %}{{ c|lctx }}{{ ", " if not loop.last }}{% endfor %}</td>
         <td>{{ h.sources[0].info }}{% if h.sources|length > 1 %} <span class="faint">+{{ h.sources|length - 1 }}</span>{% endif %}</td>
         <td class="num">{{ h.count }}</td><td class="mono">{{ h.hosts[:4]|join(', ') }}</td></tr>{% endfor %}</tbody>
@@ -225,7 +231,7 @@
       <tbody>
       {% for h in r.ioc_hits %}<tr class="hl {{ markedcls(h) }}">
         <td>{{ h.type|lioc(h.type_label) }}</td>
-        <td class="break"><span class="mono copy">{{ h.value }}</span>{% if h.port_match %} <span class="badge crit" title="{{ L.port_match_title }}">{{ L.port_match }}</span>{% endif %}
+        <td class="break"><span class="mono copy">{{ h.value }}</span>{{ ewbadge(h) }}{% if h.port_match %} <span class="badge crit" title="{{ L.port_match_title }}">{{ L.port_match }}</span>{% endif %}
           {% if h.names %}<div class="faint">{{ h.names|join(', ') }}</div>{% endif %}</td>
         <td class="break mono">{{ h.observed[:5]|join(', ') }}</td>
         <td>{% for c, n in h.contexts.items() %}<div>{{ c|lctx }} <span class="faint">×{{ n }}</span></div>{% endfor %}</td>

@@ -42,6 +42,7 @@ def build_report(cfg: Config, db: DB, job: dict) -> dict:
     rep = report_mod.build(jd, index, cfg, meta, marks=db.marks_for(job["id"]), allow=db.allowlist())
     _write(jd / "report.json", json.dumps(rep, ensure_ascii=False, default=_json_default))
     _write(jd / "report.html", render_report(rep, embedded=False))
+    db.set_sightings(job["id"], rep.get("ioc_hits") or [])   # «где ещё встречался»
     s = report_mod.summary(rep)
     s["pcap_sha256"] = meta["pcap_sha256"]
     return s

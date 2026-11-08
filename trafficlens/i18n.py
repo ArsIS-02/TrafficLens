@@ -103,6 +103,8 @@ RU = {
     "flt_any_source": "Любой источник",
     "flt_from": "С даты",
     "flt_to": "По дату",
+    "elsewhere_badge": "ещё в {n}",
+    "elsewhere_title": "Индикатор встречался в задачах",
 }
 
 EN = {
@@ -204,6 +206,8 @@ EN = {
     "flt_any_source": "Any source",
     "flt_from": "From date",
     "flt_to": "To date",
+    "elsewhere_badge": "+{n} more",
+    "elsewhere_title": "Indicator also seen in tasks",
 }
 
 RU.update({

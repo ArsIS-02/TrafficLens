@@ -236,6 +236,9 @@ def _ensure_graph(rep: dict) -> None:
     rep["graph"] = {"nodes": list(nodes.values()), "links": links}
 
 
-def render_report(rep: dict, embedded: bool = False, job: dict | None = None, lang: str = "ru") -> str:
+def render_report(rep: dict, embedded: bool = False, job: dict | None = None, lang: str = "ru",
+                  elsewhere: dict | None = None, jobnames: dict | None = None) -> str:
     _ensure_graph(rep)
-    return get_env().get_template("report.html").render(r=rep, embedded=embedded, job=job or {}, lang=lang, L=i18n_bundle(lang))
+    return get_env().get_template("report.html").render(r=rep, embedded=embedded, job=job or {}, lang=lang,
+                                                        L=i18n_bundle(lang),
+                                                        elsewhere=elsewhere or {}, jobnames=jobnames or {})

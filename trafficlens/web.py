@@ -102,6 +102,28 @@ def _public_job(j: dict | None) -> dict | None:
     return j
 
 
+def _backfill_sightings(cfg: Config, db: DB) -> None:
+    """Разовое наполнение таблицы sightings по готовым отчётам (после обновления)."""
+    try:
+        if db.sightings_count():
+            return
+        n = 0
+        for j in db.jobs(limit=10000):
+            if j["status"] != "done":
+                continue
+            rp = pipeline.job_dir(cfg, j["id"]) / "report.json"
+            try:
+                rep = json.loads(rp.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                continue
+            db.set_sightings(j["id"], rep.get("ioc_hits") or [])
+            n += 1
+        if n:
+            log.info("sightings: восстановлены наблюдения по %d задачам", n)
+    except Exception:  # noqa: BLE001 — бэкфилл не должен ронять старт приложения
+        log.exception("sightings backfill")
+
+
 def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     cfg = cfg or load_config()
     db = DB(cfg.db_path)
@@ -117,6 +139,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     if start_workers:
         worker.start(cfg, db)
         gelf.start_heartbeat(cfg, db)   # пульс сервиса: молчание ловит Graylog
+    _backfill_sightings(cfg, db)
 
     password = cfg["auth"].get("password") or cfg["auth"].get("password_hash") or ""
 
@@ -211,7 +234,13 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         if j["status"] == "done" and (jd / "report.json").exists():
             rep = json.loads((jd / "report.json").read_text(encoding="utf-8"))
             j["retro"] = db.retro_hits(job_id=job_id)
-            return render.render_report(rep, embedded=True, job=j, lang=client_lang())
+            hits = rep.get("ioc_hits") or []
+            elsewhere = db.sightings_elsewhere(
+                [(h.get("type", ""), h.get("value", "")) for h in hits], job_id) if hits else {}
+            ids = {e["job_id"] for lst in elsewhere.values() for e in lst}
+            jobnames = {i: (db.job(i) or {}).get("filename", i) for i in ids}
+            return render.render_report(rep, embedded=True, job=j, lang=client_lang(),
+                                        elsewhere=elsewhere, jobnames=jobnames)
         logtext = (jd / "job.log").read_text(encoding="utf-8", errors="replace")[-20000:] if (jd / "job.log").exists() else ""
         return tpl("job.html", page="jobs", job=j, log=logtext)
 
