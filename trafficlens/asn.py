@@ -10,6 +10,7 @@ from __future__ import annotations
 import bisect
 import gzip
 import ipaddress
+import os
 from pathlib import Path
 
 import requests
@@ -41,13 +42,19 @@ def status(cfg: Config) -> dict:
 
 
 def update(cfg: Config) -> dict:
-    """Скачать свежую базу (атомарно, через временный файл)."""
+    """Скачать свежую базу (потоково, атомарно через временный файл).
+
+    Источник можно переопределить переменной TL_ASN_URL (зеркало в своей сети),
+    либо просто положить файл в `<данные>/asn.tsv.gz` вручную — он подхватится."""
     p = db_path(cfg)
     p.parent.mkdir(parents=True, exist_ok=True)
-    r = requests.get(URL, headers=UA, timeout=TIMEOUT)
-    r.raise_for_status()
+    url = os.environ.get("TL_ASN_URL") or URL
     tmp = p.with_suffix(".tsv.tmp")
-    tmp.write_bytes(r.content)
+    with requests.get(url, headers=UA, timeout=(15, 60), stream=True) as r:
+        r.raise_for_status()
+        with open(tmp, "wb") as f:
+            for chunk in r.iter_content(1 << 20):
+                f.write(chunk)
     tmp.replace(p)
     _cache.clear()
     starts, _ = _load(cfg)

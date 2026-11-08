@@ -71,10 +71,17 @@ def test_update_writes_db(env, monkeypatch):
     payload = gzip.compress(TSV.encode())
 
     class _Resp:
-        content = payload
-
         def raise_for_status(self):
             pass
+
+        def iter_content(self, n):
+            yield payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
 
     monkeypatch.setattr(asn.requests, "get", lambda *a, **kw: _Resp())
     res = worker.run_asn_update(cfg, db)
