@@ -177,3 +177,23 @@ def test_iocs_page_graylog_panel(env):
     r = c.get("/iocs")
     assert "graylog-panel" in r.text and "udp://127.0.0.1:9" in r.text
     assert c.post("/api/gelf/test", headers=H).json["ok"]
+
+
+def test_heartbeat(env, udp):
+    cfg, db = env
+    cfg["gelf"].update(enabled=True, host="127.0.0.1", port=udp.getsockname()[1], protocol="udp")
+    assert gelf.heartbeat(cfg, db) is True
+    msgs = [m for m in _recv_all(udp) if m.get("_tl_event") == "heartbeat"]
+    assert len(msgs) == 1, msgs
+    m = msgs[0]
+    assert m["level"] == 6 and m["_homelab_app"] == "trafficlens" and m["_tl_source"] == "trafficlens"
+    assert m["_tl_iocs_total"] >= 3 and m["_tl_jobs_total"] >= 0
+    assert "сервис на связи" in m["short_message"]
+    cfg["gelf"]["enabled"] = False
+    assert gelf.heartbeat(cfg, db) is False
+
+
+def test_start_heartbeat_disabled(env):
+    cfg, db = env
+    cfg["gelf"]["enabled"] = False
+    assert gelf.start_heartbeat(cfg, db) is None   # без GELF поток не стартует

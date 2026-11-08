@@ -116,6 +116,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
     app.extensions["tl"] = {"cfg": cfg, "db": db}
     if start_workers:
         worker.start(cfg, db)
+        gelf.start_heartbeat(cfg, db)   # пульс сервиса: молчание ловит Graylog
 
     password = cfg["auth"].get("password") or cfg["auth"].get("password_hash") or ""
 

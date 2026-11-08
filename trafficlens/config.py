@@ -154,6 +154,7 @@ ENV_MAP = {
     "TL_PORT": ("port",),
     "TL_GELF_HOST": ("gelf", "host"),
     "TL_GELF_PORT": ("gelf", "port"),
+    "TL_GELF_HEARTBEAT": ("gelf", "heartbeat_every"),
     "TL_BASE_URL": ("gelf", "base_url"),
     "TL_EXPORT_TOKEN": ("export", "token"),
 }

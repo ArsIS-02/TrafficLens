@@ -181,3 +181,45 @@ def test_message(cfg, db) -> tuple[bool, str]:
         return False, str(e)[:200]
     db.kv_set("gelf_status", {"ts": time.time(), "ok": True, "sent": 1})
     return True, ""
+
+
+# ---------- пульс сервиса ----------
+
+def heartbeat(cfg, db) -> bool:
+    """Пульс сервиса: раз в час из start_heartbeat. По его отсутствию Graylog замечает,
+    что TrafficLens молчит (алерт «Тишина: TrafficLens»)."""
+    if not enabled(cfg):
+        return False
+    from . import ioc_store
+    with db.conn() as c:
+        jobs = c.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    iocs = int((ioc_store.stats(db) or {}).get("total") or 0)
+    with Sender(cfg) as s:
+        s.send("TrafficLens: сервис на связи (задач %d, IOC %d)" % (jobs, iocs),
+               {"homelab_app": "trafficlens", "tl_event": "heartbeat",
+                "tl_jobs_total": jobs, "tl_iocs_total": iocs}, 6)
+    return True
+
+
+def start_heartbeat(cfg, db, every: int | None = None):
+    """Фоновый пульс сервиса: первый — через минуту после старта, дальше раз в `every` секунд
+    (по умолчанию gelf.heartbeat_every или 3600). Без включённого GELF поток не стартует."""
+    if not enabled(cfg):
+        log.info("GELF не настроен — пульс сервиса выключен")
+        return None
+    import threading
+    every = every or int(_cfg(cfg).get("heartbeat_every") or 3600)
+
+    def loop():
+        time.sleep(60)               # дать сервису подняться; первый пульс — через минуту
+        while True:
+            try:
+                heartbeat(cfg, db)
+            except Exception as e:   # noqa: BLE001 — пульс не должен умирать из-за одного прохода
+                log.warning("heartbeat: проход не удался: %s", e)
+            time.sleep(every)
+
+    t = threading.Thread(target=loop, name="trafficlens-heartbeat", daemon=True)
+    t.start()
+    log.info("heartbeat: пульс сервиса каждые %d с", every)
+    return t
