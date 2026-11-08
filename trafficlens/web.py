@@ -13,7 +13,7 @@ import time
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, Response, abort, jsonify, redirect, request, send_file, session, url_for
+from flask import Flask, Response, abort, after_this_request, jsonify, redirect, request, send_file, session, url_for
 
 from . import asn, exports, feeds, gelf, hostcard, ioc_store, killchain, listfeeds, markup, pipeline, render, runner, worker
 from .config import Config
@@ -351,6 +351,44 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
             zf.write(p, arcname=name + ".bin")
         buf.seek(0)
         return send_file(buf, mimetype="application/zip", as_attachment=True, download_name=f"{name}.zip")
+
+    @app.get("/jobs/<job_id>/files.zip")
+    @require_login
+    def job_files_zip(job_id):
+        """Все извлечённые файлы одним ZIP с паролем «infected» (кнопка в панели «Файлы»)."""
+        j = get_job(job_id)
+        d = pipeline.job_dir(cfg, job_id) / "zeek" / "extract_files"
+        names = sorted(p.name for p in d.iterdir() if p.is_file() and not p.name.startswith(".")) if d.exists() else []
+        if not names:
+            abort(404)
+        try:
+            import pyzipper
+        except ImportError:
+            return Response("pyzipper не установлен", status=500)
+        tmp = tempfile.NamedTemporaryFile(prefix="tlzip_", suffix=".zip", delete=False)
+        tmp_path = tmp.name
+        try:
+            with pyzipper.AESZipFile(tmp, "w", compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+                zf.setpassword(b"infected")
+                for n in names:
+                    zf.write(d / n, arcname=n + ".bin")
+        except Exception:
+            tmp.close()
+            os.unlink(tmp_path)
+            raise
+        tmp.close()
+        base = re.sub(r"[^\w.\-]+", "_", j.get("filename") or job_id)
+
+        @after_this_request
+        def _cleanup(resp):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            return resp
+
+        return send_file(tmp_path, mimetype="application/zip", as_attachment=True,
+                         download_name=f"{base}-files.zip")
 
     @app.get("/iocs")
     @require_login
