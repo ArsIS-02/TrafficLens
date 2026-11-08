@@ -79,6 +79,8 @@ window.TL = (function () {
       } else if (a === "retro-run") {
         b.disabled = true; await api("/api/retro/run", { body: { full: b.dataset.full === "1" } });
         toast(tr("retro_started")); pollStatus();
+      } else if (a === "asn-update") {
+        b.disabled = true; await api("/api/asn/update"); toast(tr("asn_update_started")); pollStatus();
       } else if (a === "list-toggle") {
         b.disabled = true; await api("/api/iocs/lists/toggle", { body: { id: b.dataset.id, enabled: b.dataset.on === "1" } });
         toast(tr(b.dataset.on === "1" ? "list_enabled_ok" : "list_disabled_ok")); setTimeout(() => location.reload(), b.dataset.on === "1" ? 2500 : 400);

@@ -87,6 +87,16 @@
   </dl>
 </section>
 
+<section class="panel" id="asn-panel">
+  <div class="panel-head"><h2>{{ L.asn_title }}</h2><div class="spacer"></div>
+    <button class="btn" data-action="asn-update" {{ 'disabled' if 'asn' in state.busy }}>{{ L.asn_update_btn }}</button></div>
+  <dl class="kv">
+    <dt>{{ L.asn_base }}</dt><dd>{% if asn_status.present %}<span class="badge ok">{{ L.on_lbl }}</span> {{ L.asn_ranges_n.format(n=asn_status.ranges) }} · {{ asn_status.updated|ts }} · {{ asn_status.size|bytes }}
+      {% else %}<span class="badge">{{ L.disabled }}</span> <span class="faint">{{ L.asn_missing_hint }}</span>{% endif %}</dd>
+    {% if asn_last %}<dt>{{ L.asn_last }}</dt><dd>{{ asn_last.ts|ts }} · {% if asn_last.error %}<span class="badge crit">{{ L.error }}</span> <span class="muted">{{ asn_last.error }}</span>{% else %}<span class="badge ok">{{ L.ok }}</span> {{ L.asn_ranges_n.format(n=asn_last.ranges|int) }}{% endif %}</dd>{% endif %}
+  </dl>
+</section>
+
 <section class="panel" id="retro-panel">
   <div class="panel-head"><h2>{{ L.retro_panel_title }}</h2><div class="spacer"></div>
     <button class="btn" data-action="retro-run" {{ 'disabled' if 'retro' in state.busy }}>{{ L.retro_run_new }}</button>

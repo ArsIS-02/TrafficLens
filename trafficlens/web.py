@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, request, send_file, session, url_for
 
-from . import exports, feeds, gelf, hostcard, ioc_store, killchain, listfeeds, markup, pipeline, render, runner, worker
+from . import asn, exports, feeds, gelf, hostcard, ioc_store, killchain, listfeeds, markup, pipeline, render, runner, worker
 from .config import Config
 from .config import load as load_config
 from .db import DB
@@ -375,6 +375,7 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
                    lists=listfeeds.all_feeds(cfg), list_source=listfeeds.source_name,
                    retro_status=db.kv_get("retro_status") or {}, retro_cfg=cfg.get("retro") or {},
                    gelf_cfg=cfg.get("gelf") or {}, gelf_status=db.kv_get("gelf_status") or {},
+                   asn_status=asn.status(cfg), asn_last=db.kv_get("asn_status") or {},
                    export_on=bool((cfg.get("export") or {}).get("token")))
 
     @app.get("/help")
@@ -532,6 +533,16 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
             import threading
             threading.Thread(target=worker.run_ioc_update, args=(cfg, db, "custom"), daemon=True).start()
         return jsonify(ok=True, **res)
+
+    @app.post("/api/asn/update")
+    @require_login
+    def api_asn_update():
+        """Кнопка «Обновить базу ASN»: скачивание iptoasn в фоне."""
+        if worker.busy("asn"):
+            return jsonify(error=et("err_update_running")), 409
+        import threading
+        threading.Thread(target=worker.run_asn_update, args=(cfg, db), daemon=True).start()
+        return jsonify(ok=True)
 
     @app.post("/api/rules/update")
     @require_login

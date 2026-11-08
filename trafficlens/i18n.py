@@ -1060,6 +1060,28 @@ RU.update({
     "gelf_test_ok": "Тестовое сообщение отправлено",
     "gelf_err_disabled": "GELF не настроен"
 })
+
+# ---- офлайн-база ASN (iptoasn)
+RU.update({
+    "asn_title": "ASN: владельцы адресов",
+    "asn_base": "База iptoasn",
+    "asn_update_btn": "Обновить базу",
+    "asn_ranges_n": "диапазонов: {n}",
+    "asn_missing_hint": "не скачана — нажмите «Обновить базу», чтобы видеть владельцев внешних адресов в отчётах",
+    "asn_last": "Последнее обновление",
+    "asn_update_started": "Обновление базы ASN запущено",
+    "col_as": "AS / владелец"
+})
+EN.update({
+    "asn_title": "ASN: address owners",
+    "asn_base": "iptoasn database",
+    "asn_update_btn": "Update database",
+    "asn_ranges_n": "ranges: {n}",
+    "asn_missing_hint": "not downloaded — press “Update database” to see owners of external addresses in reports",
+    "asn_last": "Last update",
+    "asn_update_started": "ASN database update started",
+    "col_as": "AS / owner"
+})
 EN.update({
     "graylog_title": "Graylog integration",
     "gelf_test_btn": "Send a test message",

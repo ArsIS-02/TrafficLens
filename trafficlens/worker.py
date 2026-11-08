@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import feeds, pipeline, retro, runner
+from . import asn, feeds, pipeline, retro, runner
 from .config import Config
 from .db import DB
 
@@ -121,6 +121,21 @@ def run_ioc_update(cfg: Config, db: DB, only: str | None = None, retro_sync: boo
         else:   # в фоне: первый проход строит observables для всех задач и может занять минуты
             threading.Thread(target=run_retro, args=(cfg, db), daemon=True, name="retro").start()
     return res
+
+
+def run_asn_update(cfg: Config, db: DB) -> dict:
+    """Скачать офлайн-базу ASN (iptoasn); результат — в kv asn_status."""
+    _mark("asn", True)
+    try:
+        res = asn.update(cfg)
+        db.kv_set("asn_status", {"ts": time.time(), **res})
+        return res
+    except Exception as e:  # noqa: BLE001
+        log.exception("asn update")
+        db.kv_set("asn_status", {"ts": time.time(), "error": str(e)[:300]})
+        return {"error": str(e)[:300]}
+    finally:
+        _mark("asn", False)
 
 
 def run_retro(cfg: Config, db: DB, full: bool = False) -> dict | None:

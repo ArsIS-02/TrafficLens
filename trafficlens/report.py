@@ -19,6 +19,7 @@ from .ioc_store import IOCIndex, Match
 from .ioc_types import TYPE_LABELS, norm_url
 from .markup import skipped as _marked_skip
 from . import names, quality
+from . import asn as asn_mod
 
 STD_PORTS = {
     "http": {80, 8080, 8000, 8008, 8081, 8888, 3128, 591},
@@ -557,6 +558,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
           "ports": [p for p, _ in e["ports"].most_common(5)], "services": [s for s, _ in e["services"].most_common(3)],
           "clients": sorted(e["clients"])[:5], "ioc": e["ip"] in ioc_ips} for e in ext.values()),
         key=lambda x: (not x["ioc"], -x["bytes"]))[:max_rows]
+    asn_mod.enrich(cfg, top_external)   # офлайн-база ASN (iptoasn), если скачана
     local_hosts = sorted(
         ({"ip": ip, "name": name_of(ip), "mac": host_info.get(ip, {}).get("mac", ""), "out": v[0], "in": v[1], "conns": v[2]}
          for ip, v in talkers.items() if ip and is_local(ip) and not _is_mcast(ip)),
