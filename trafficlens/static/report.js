@@ -8,6 +8,27 @@
   document.addEventListener("click", e => {
     const t = e.target.closest(".tab");
     if (t) { showTab(t.dataset.tab); return; }
+    const exb = e.target.closest("#export-iocs-btn");
+    if (exb) {
+      e.preventDefault();
+      const I = window.TL_I18N || {};
+      exb.disabled = true;
+      fetch(`/api/jobs/${exb.dataset.job}/export-iocs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "TrafficLens" },
+        body: "{}",
+      }).then(r => r.json().catch(() => ({}))).then(r => {
+        exb.disabled = false;
+        if (!window.TL || !TL.toast) return;
+        if (r.ok) {
+          TL.toast((I.export_iocs_done || "added {added}, dup {dup}, skipped {skipped}")
+            .replace("{added}", r.added ?? 0).replace("{dup}", r.dup ?? 0).replace("{skipped}", r.skipped ?? 0));
+        } else {
+          TL.toast(r.error || "error", true);
+        }
+      }).catch(() => { exb.disabled = false; if (window.TL && TL.toast) TL.toast("network error", true); });
+      return;
+    }
     const go = e.target.closest("[data-goto]");
     if (go) { e.preventDefault(); showTab(go.dataset.goto); window.scrollTo({ top: 0 }); return; }
     const c = e.target.closest(".copy");

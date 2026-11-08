@@ -518,6 +518,21 @@ def create_app(cfg: Config | None = None, start_workers: bool = True) -> Flask:
         threading.Thread(target=worker.run_ioc_update, args=(cfg, db, only), daemon=True).start()
         return jsonify(ok=True)
 
+    @app.post("/api/jobs/<job_id>/export-iocs")
+    @require_login
+    def api_job_export_iocs(job_id):
+        """Кнопка «в свои IOC»: находки задачи → from-reports.txt, переиндексация и ретропроверка."""
+        j = get_job(job_id)
+        if j["status"] != "done":
+            return jsonify(error=et("err_job_not_done")), 409
+        rp = pipeline.job_dir(cfg, job_id) / "report.json"
+        rep = json.loads(rp.read_text(encoding="utf-8"))
+        res = feeds.add_job_iocs_to_custom(cfg, j, rep)
+        if res["added"]:
+            import threading
+            threading.Thread(target=worker.run_ioc_update, args=(cfg, db, "custom"), daemon=True).start()
+        return jsonify(ok=True, **res)
+
     @app.post("/api/rules/update")
     @require_login
     def api_rules_update():

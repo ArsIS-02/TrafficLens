@@ -224,7 +224,7 @@
 <!-- ============================================================ IOC -->
 <section class="tabpane" id="tab-ioc">
   <section class="panel flush">
-    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ioc_hits_title }}</h2>{{ evmark('fact') }}<div class="spacer"></div>{% if embedded %}<a class="btn small" href="/jobs/{{ job.id }}/export/iocs.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-ioc') }}</div>
+    <div class="panel-head" style="padding:16px 20px 0"><h2>{{ L.ioc_hits_title }}</h2>{{ evmark('fact') }}<div class="spacer"></div>{% if embedded %}<button class="btn small" id="export-iocs-btn" data-job="{{ job.id }}" title="{{ L.export_iocs_title }}">{{ L.export_iocs }}</button> <a class="btn small" href="/jobs/{{ job.id }}/export/iocs.csv" title="{{ L.dl_csv_title }}">CSV</a>{% endif %}{{ filter('t-ioc') }}</div>
     <div class="table-wrap"><table id="t-ioc">
       <thead><tr><th data-sort="text">{{ L.col_type }}</th><th data-sort="text">{{ L.col_indicator }}</th><th>{{ L.col_observed }}</th><th>{{ L.col_context }}</th><th>{{ L.col_sources }}</th>
         <th class="num" data-sort="num">{{ L.col_times }}</th><th>{{ L.col_first_last }}</th><th>{{ L.col_hosts }}</th><th></th></tr></thead>

@@ -340,6 +340,43 @@ def load_custom(dir_: Path) -> tuple[list[Indicator], list[str]]:
     return items, errors
 
 
+FROM_REPORTS = "from-reports.txt"
+
+
+def add_job_iocs_to_custom(cfg: Config, job: dict, rep: dict) -> dict:
+    """Экспорт находок задачи в пользовательский список `from-reports.txt` (кнопка в отчёте).
+
+    Берутся IOC-хиты отчёта; размеченные как ложные/игнор и уже присутствующие
+    в пользовательских списках пропускаются. Возвращает счётчики для тоста."""
+    existing = {i.value for i in load_custom(cfg.custom_ioc_dir)[0]}
+    path = cfg.custom_ioc_dir / FROM_REPORTS
+    lines, seen = [], set()
+    res = {"added": 0, "dup": 0, "skipped": 0, "file": FROM_REPORTS}
+    for h in rep.get("ioc_hits") or []:
+        v = (h.get("value") or "").strip()
+        if not v or v in seen:
+            continue
+        seen.add(v)
+        if (h.get("status") or "") in ("false_positive", "ignored"):
+            res["skipped"] += 1
+            continue
+        if v in existing:
+            res["dup"] += 1
+            continue
+        comment = f"{job.get('filename', '')} ({job.get('id', '')})".strip()
+        lines.append(f"{v} # {comment}")
+        existing.add(v)                      # защита от дублей внутри самой задачи
+    if lines:
+        need_nl = path.exists() and path.stat().st_size > 0 and \
+            not path.read_text(encoding="utf-8", errors="replace").endswith("\n")
+        with path.open("a", encoding="utf-8") as f:
+            if need_nl:
+                f.write("\n")
+            f.write("\n".join(lines) + "\n")
+    res["added"] = len(lines)
+    return res
+
+
 # ------------------------------------------------------------------ обновление всего
 def update_all(cfg: Config, db: DB, only: str | None = None) -> dict[str, str]:
     ic = cfg["iocs"]
