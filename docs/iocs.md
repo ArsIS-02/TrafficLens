@@ -16,6 +16,7 @@ IOC хранятся в SQLite в каталоге данных. Каждое с
 | Spamhaus DROP / DROPv6 | угнанные и «чёрные» сети (CIDR), confidence 90 | полный снимок | — |
 | ET compromised IPs | скомпрометированные хосты от Emerging Threats, confidence 60 | полный снимок | — |
 | Tor exit nodes | выходные узлы Tor, confidence 20 — контекст, а не компрометация; по умолчанию выключен | полный снимок | — |
+| abuse.ch SSLBL JA3 | вредоносные TLS-отпечатки JA3 (фид заморожен в 2021) + курируемая классика: Cobalt Strike, Metasploit, Emotet, TrickBot, Dridex, Tor; confidence 75–80 | полный снимок | — |
 | MISP | атрибуты с флагом `to_ids` за N дней | полный снимок | url + key |
 | OpenCTI | STIX-индикаторы с действующим `valid_until` | полный снимок | url + token |
 
@@ -35,7 +36,13 @@ iocs:
     spamhaus_drop: true
     et_compromised: true
     tor_exits: false
+    sslbl_ja3: true
 ```
+
+Совпадения JA3 ищутся по отпечаткам TLS-сессий, которые пишет Suricata
+(`app-layer.protocols.tls.ja3-fingerprints=yes`): отчёт покажет находку
+с контекстом `ctx_tls_ja3`, а ретропроверка пересверит по новым отпечаткам
+все старые дампы.
 
 Подсети (CIDR) сверяются через индекс по длине префикса, поэтому тысячи сетей Spamhaus не замедляют анализ больших PCAP.
 
