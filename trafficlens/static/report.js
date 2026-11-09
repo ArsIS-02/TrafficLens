@@ -60,9 +60,13 @@
     };
     mk(I.copy_label || "Копировать", () => { if (navigator.clipboard) navigator.clipboard.writeText(v).catch(() => {}); });
     mk(I.vt_check || "Проверить на VirusTotal", () => window.open("https://www.virustotal.com/gui/search/" + encodeURIComponent(v), "_blank", "noopener"));
-    // блокировка IP/домена в BlockBoard (пульт сам проверит тип индикатора)
-    const BB = window.TL_BLOCKBOARD_URL || "https://blockboard.apps.monitoring.test/";
-    mk(I.bb_block || "Заблокировать в BlockBoard", () => window.open(BB + "?block=" + encodeURIComponent(v) + "&reason=" + encodeURIComponent("TrafficLens"), "_blank", "noopener"));
+    // блокировка IP/домена в BlockBoard (хеши и JA3 на роутере не блокируются)
+    const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(v);
+    const isDom = /^([a-z0-9](-?[a-z0-9])*\.)+[a-z]{2,}$/i.test(v) && !/^[0-9a-f]{32,64}$/i.test(v);
+    if (isIp || isDom) {
+      const BB = window.TL_BLOCKBOARD_URL || "https://blockboard.apps.monitoring.test/";
+      mk(I.bb_block || "Заблокировать в BlockBoard", () => window.open(BB + "?block=" + encodeURIComponent(v) + "&reason=" + encodeURIComponent("TrafficLens"), "_blank", "noopener"));
+    }
     document.body.appendChild(ctxMenu);
     ctxMenu.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - ctxMenu.offsetWidth - 8)) + "px";
     ctxMenu.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - ctxMenu.offsetHeight - 8)) + "px";
