@@ -138,6 +138,15 @@ DEFAULTS: dict = {
         "long_conn_hours": 1,
         "dns_entropy": 3.8,
         "dns_min_label": 14,
+        # DGA: агрегированный сигнал по базовому домену
+        "dga_min_labels": 8,        # минимум уникальных «случайных» меток
+        "dga_entropy": 3.5,         # средняя энтропия меток
+        "dga_strong_labels": 16,    # столько меток — сильный сигнал даже без NXDOMAIN
+        "dga_nxdomain": 0.3,        # доля NXDOMAIN для слабого сигнала
+        "dga_whitelist": [          # легитимные хостинги/CDN с массовыми поддоменами
+            "googlevideo.com", "cloudfront.net", "akamai.net", "akamaiedge.net",
+            "azureedge.net", "cloudapp.net", "amazonaws.com", "cdnvideo.ru",
+        ],
     },
     "report": {
         "max_rows": 500,

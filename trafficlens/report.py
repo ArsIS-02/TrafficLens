@@ -158,6 +158,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
     zdir, sdir = job_dir / "zeek", job_dir / "suricata"
     loc = Locality(cfg["local_nets"])
     heur = cfg["heuristics"]
+    dga_white = set(heur.get("dga_whitelist") or [])
     max_rows = int(cfg.get("report", {}).get("max_rows", 500))
     hits = Hits()
     is_local = loc.is_local
@@ -176,6 +177,7 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
     qtypes = Counter()
     txt_by_base = Counter()
     suspicious_dns: dict[str, dict] = {}
+    dga_stats: dict[str, dict] = {}   # базовый домен -> метки, запросы, NXDOMAIN, клиенты
     dns_total = 0
     for r in read_log(zdir / "dns.log"):
         dns_total += 1
@@ -222,9 +224,31 @@ def build(job_dir: Path, index: IOCIndex, cfg: dict, meta: dict | None = None,
             s = suspicious_dns.setdefault(q, {"name": q, "reason": reason, "count": 0, "clients": set()})
             s["count"] += 1
             s["clients"].add(src)
+        # статистика для агрегированного DGA-сигнала по базовому домену
+        if labels and base not in dga_white:
+            st = dga_stats.setdefault(base, {"labels": set(), "q": 0, "nx": 0, "clients": set()})
+            st["labels"].add(longest)
+            st["q"] += 1
+            if rc == "NXDOMAIN":
+                st["nx"] += 1
+            if len(st["clients"]) < 10:
+                st["clients"].add(src)
     for base, n in txt_by_base.items():
         if n >= 20:
             suspicious_dns[f"*.{base}"] = {"name": f"*.{base}", "reason": {"k": "dns_txt", "n": n}, "count": n, "clients": set()}
+    # DGA: много уникальных высокоэнтропийных поддоменов + NXDOMAIN под одним базовым доменом
+    for base, st in dga_stats.items():
+        uniq = len(st["labels"])
+        if uniq < int(heur["dga_min_labels"]):
+            continue
+        avg_e = sum(entropy(l) for l in st["labels"]) / uniq
+        nxr = st["nx"] / st["q"] if st["q"] else 0
+        if avg_e >= float(heur["dga_entropy"]) and \
+                (nxr >= float(heur["dga_nxdomain"]) or uniq >= int(heur["dga_strong_labels"])):
+            suspicious_dns[f"*.{base}"] = {"name": f"*.{base}", "count": st["q"],
+                                           "reason": {"k": "dga", "n": uniq, "e": f"{avg_e:.2f}",
+                                                      "nx": f"{nxr * 100:.0f}%"},
+                                           "clients": st["clients"]}
 
     # ======================= DHCP
     for r in read_log(zdir / "dhcp.log"):
