@@ -58,6 +58,7 @@ DEFAULTS: dict = {
             "spamhaus_drop": True,   # Spamhaus DROP: угнанные/«чёрные» сети, CIDR
             "et_compromised": True,  # Emerging Threats: скомпрометированные IP
             "tor_exits": False,      # выходные узлы Tor — контекст, а не компрометация
+            "sslbl_ja3": True,       # abuse.ch SSLBL: вредоносные JA3 + курируемая классика
         },
         "misp": {
             "enabled": False,

@@ -906,6 +906,7 @@ RU.update({
     "note_spamhaus": "угнанные и «чёрные» сети (CIDR), без ключа",
     "note_et_compromised": "скомпрометированные IP от Emerging Threats, без ключа",
     "note_tor": "выходные узлы Tor — контекст, низкая уверенность; включается iocs.public.tor_exits",
+    "note_sslbl_ja3": "вредоносные TLS-отпечатки JA3 (SSLBL заморожен в 2021) + курируемая классика: Cobalt Strike, Metasploit, Emotet, TrickBot, Dridex, Tor; включается iocs.public.sslbl_ja3",
 })
 EN.update({
     "verdict_gated": "The score is above the compromise threshold, but there are no IOC hits, high-severity signatures or known-bad files — the verdict is capped at “suspicious”.",
@@ -933,6 +934,7 @@ EN.update({
     "note_spamhaus": "hijacked and blacklisted networks (CIDR), no key needed",
     "note_et_compromised": "compromised IPs from Emerging Threats, no key needed",
     "note_tor": "Tor exit nodes — context, low confidence; enable with iocs.public.tor_exits",
+    "note_sslbl_ja3": "malicious JA3 TLS fingerprints (SSLBL frozen in 2021) + curated classics: Cobalt Strike, Metasploit, Emotet, TrickBot, Dridex, Tor; enable with iocs.public.sslbl_ja3",
 })
 
 # ---- ретропроверка и открытые списки угроз

@@ -153,6 +153,47 @@ def fetch_tor_exits() -> list[Indicator]:
     return _plain_ips(r.text, "Tor exit node", ["tor"], 20)
 
 
+SSLBL_JA3 = "https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv"
+
+# Классика из публичных материалов Salesforce JA3 / MITRE — на случай,
+# если фид SSLBL недоступен (он заморожен в 2021, но хеши не протухают).
+CURATED_JA3 = {
+    "e7d705a3286e19ea42f587b344ee6865": "Tor client",
+    "4d7a28d6f2263ed61de88ca66eb011e3": "Emotet",
+    "6734f37431670b3ab4292b8f60f29984": "TrickBot",
+    "51c64c77e60f3980eea90869b68c58a8": "Dridex",
+    "74927e242d6c3febf8cb9cab10a7f889": "Dridex",
+    "5d65ea3fb1d4aa7d826733d2f2cbbb1d": "Meterpreter (Linux)",
+    "72a589da586844d7f0818ce684948eea": "Cobalt Strike (default beacon)",
+}
+
+
+def fetch_sslbl_ja3() -> list[Indicator]:
+    """abuse.ch SSLBL: вредоносные отпечатки JA3 + курируемая классика."""
+    out: list[Indicator] = []
+    seen = set()
+    try:
+        r = requests.get(SSLBL_JA3, headers=UA, timeout=TIMEOUT)
+        r.raise_for_status()
+        for row in csv.reader(io.StringIO(r.text)):
+            if not row or row[0].startswith("#"):
+                continue
+            ja3, reason = row[0].strip().lower(), (row[3].strip() if len(row) > 3 else "")
+            i = _ind(ja3, "ja3", info=f"SSLBL: {reason}", tags=["sslbl", "ja3"], conf=80)
+            if i:
+                seen.add(ja3)
+                out.append(i)
+    except Exception as e:  # noqa: BLE001 — фид мог умереть, работаем на курируемом наборе
+        log.warning("sslbl ja3 download failed, curated only: %s", e)
+    for ja3, name in CURATED_JA3.items():
+        if ja3 in seen:
+            continue
+        i = _ind(ja3, "ja3", info=f"curated: {name}", tags=["ja3", "curated"], conf=75)
+        if i:
+            out.append(i)
+    return out
+
+
 def fetch_malwarebazaar(key: str) -> list[Indicator]:
     if not key:
         raise FeedError("feed_err_need_key")
@@ -398,6 +439,7 @@ def update_all(cfg: Config, db: DB, only: str | None = None) -> dict[str, str]:
         ("spamhaus-drop", pub.get("spamhaus_drop"), fetch_spamhaus_drop, "replace"),
         ("et-compromised", pub.get("et_compromised"), fetch_et_compromised, "replace"),
         ("tor-exits", pub.get("tor_exits"), fetch_tor_exits, "replace"),
+        ("sslbl-ja3", pub.get("sslbl_ja3"), fetch_sslbl_ja3, "replace"),
     ]
     if ic["misp"].get("enabled"):
         plan.append(("misp", True, lambda: fetch_misp(ic["misp"]), "replace"))
