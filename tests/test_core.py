@@ -665,8 +665,10 @@ def test_virustotal_context_menu(env, tmp_path):
     from trafficlens.render import render_report
     html = render_report(json.loads(json.dumps(rep, default=list)), lang="en")
     assert "virustotal.com/gui/search/" in html and "Check on VirusTotal" in html
+    assert "blockboard" in html and "Block in BlockBoard" in html
     html_ru = render_report(json.loads(json.dumps(rep, default=list)), lang="ru")
     assert "Проверить на VirusTotal" in html_ru
+    assert "Заблокировать в BlockBoard" in html_ru
 
 
 def test_host_card(env, tmp_path):
